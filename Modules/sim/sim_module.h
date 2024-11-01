@@ -15,16 +15,16 @@ extern "C" {
 #endif
 
 
-#define RESPONSE_SIZE (430)
+#define RESPONSE_SIZE (800)
 #define END_OF_STRING (0x1a)
-#define SIM_LOG_SIZE  (200)
+#define SIM_LOG_SIZE  (300)
 
 
 extern char sim_response[RESPONSE_SIZE];
 
 
 void sim_begin();
-void sim_proccess();
+void sim_process();
 void sim_proccess_input(const char input_chr);
 void send_sim_http_post(const char* data);
 bool has_http_response();

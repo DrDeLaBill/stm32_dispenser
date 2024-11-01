@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 
-extern uint16_t SYSTEM_ADC_VOLTAGE;
+extern uint16_t SYSTEM_ADC_VOLTAGE[3];
 
 
 void system_clock_hsi_config(void);

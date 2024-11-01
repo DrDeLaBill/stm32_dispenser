@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "adc.h"
+#include "can.h"
 #include "dma.h"
 #include "i2c.h"
 #include "rtc.h"
@@ -31,12 +32,17 @@
 
 #include <string.h>
 
+#include "out.h"
+#include "log.h"
 #include "glog.h"
+#include "pump.h"
 #include "soul.h"
+#include "level.h"
 #include "ds1307.h"
 #include "gutils.h"
 #include "system.h"
 #include "w25qxx.h"
+#include "pressure.h"
 #include "settings.h"
 #include "sim_module.h"
 
@@ -138,11 +144,11 @@ int main(void)
   MX_GPIO_Init();
   MX_ADC1_Init();
   MX_I2C1_Init();
-  MX_SPI2_Init();
   MX_USART1_UART_Init();
-  MX_USART2_UART_Init();
   MX_USART3_UART_Init();
   MX_RTC_Init();
+  MX_CAN_Init();
+  MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
 
 	HAL_Delay(100);
@@ -151,6 +157,8 @@ int main(void)
 
 	set_status(LOADING);
 
+    // Pump
+    pump_init();
 	// Clock
 	DS1307_Init();
 	// Sim module
@@ -203,6 +211,8 @@ int main(void)
 
 	sim_begin();
 
+	log_init();
+
 	system_post_load();
 
 	HAL_Delay(100);
@@ -218,6 +228,7 @@ int main(void)
 #endif
 
 	set_status(WORKING);
+	set_status(HAS_NEW_RECORD);
 	errTimer.start();
 	while (1)
 	{
@@ -252,16 +263,29 @@ int main(void)
 			system_error_handler((SOUL_STATUS)get_first_error(), error_loop);
 		}
 
+        // Pump
+        pump_process();
+
+        out_tick();
+
+		// Pressure update
+		pressure_process();
+
+        // Sim module
+        sim_process();
+
+        // Level update
+        level_tick();
+
+        // Record & settings synchronize process
+        log_tick();
+
 		if (has_errors() || is_status(LOADING)) {
 			continue;
 		}
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
-        // Sim module
-        sim_proccess();
-
 		errTimer.start();
 	}
   /* USER CODE END 3 */
@@ -319,14 +343,15 @@ void SystemClock_Config(void)
 
 void error_loop()
 {
-	hardGuard.defend();
-	softGuard.defend();
+	static bool isSoftguard = false;
+	isSoftguard ? hardGuard.defend() : softGuard.defend();
+	isSoftguard = !isSoftguard;
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     if (huart == &SIM_MODULE_UART) {
         sim_proccess_input(sim_input_chr);
-        HAL_UART_Receive_IT(&SIM_MODULE_UART, (uint8_t*) &sim_input_chr, 1);
+        HAL_UART_Receive_IT(&SIM_MODULE_UART, (uint8_t*)&sim_input_chr, 1);
     }
 }
 

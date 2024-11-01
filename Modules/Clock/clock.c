@@ -1,11 +1,11 @@
 /* Copyright © 2023 Georgy E. All rights reserved. */
 
-#include "clock.h"
-
+#include <clock.h>
 #include <stdint.h>
 #include <stdbool.h>
 
 #include "glog.h"
+#include "clock.h"
 #include "ds1307.h"
 #include "bmacro.h"
 #include "hal_defs.h"
@@ -32,7 +32,7 @@ typedef enum _Months {
 uint8_t _get_days_in_month(uint16_t year, Months month);
 
 
-uint16_t clock_get_year()
+uint16_t get_clock_year()
 {
 	uint16_t year = 0;
 	if (DS1307_GetYear(&year) != DS1307_OK) {
@@ -41,7 +41,7 @@ uint16_t clock_get_year()
 	return year;
 }
 
-uint8_t clock_get_month()
+uint8_t get_clock_month()
 {
 	uint8_t month = 0;
 	if (DS1307_GetMonth(&month) != DS1307_OK) {
@@ -50,7 +50,7 @@ uint8_t clock_get_month()
 	return month;
 }
 
-uint8_t clock_get_date()
+uint8_t get_clock_date()
 {
 	uint8_t date = 0;
 	if (DS1307_GetDate(&date) != DS1307_OK) {
@@ -59,7 +59,7 @@ uint8_t clock_get_date()
 	return date;
 }
 
-uint8_t clock_get_hour()
+uint8_t get_clock_hour()
 {
 	uint8_t hour = 0;
 	if (DS1307_GetHour(&hour) != DS1307_OK) {
@@ -68,7 +68,7 @@ uint8_t clock_get_hour()
 	return hour;
 }
 
-uint8_t clock_get_minute()
+uint8_t get_clock_minute()
 {
 	uint8_t minute = 0;
 	if (DS1307_GetMinute(&minute) != DS1307_OK) {
@@ -77,7 +77,7 @@ uint8_t clock_get_minute()
 	return minute;
 }
 
-uint8_t clock_get_second()
+uint8_t get_clock_second()
 {
 	uint8_t second = 0;
 	if (DS1307_GetSecond(&second) != DS1307_OK) {
@@ -86,7 +86,7 @@ uint8_t clock_get_second()
 	return second;
 }
 
-bool clock_save_time(const clock_time_t* time)
+bool save_clock_time(const clock_time_t* time)
 {
     if (time->Seconds >= SECONDS_PER_MINUTE ||
 		time->Minutes >= MINUTES_PER_HOUR ||
@@ -106,7 +106,7 @@ bool clock_save_time(const clock_time_t* time)
 	return true;
 }
 
-bool clock_save_date(const clock_date_t* date)
+bool save_clock_date(const clock_date_t* date)
 {
 	if (date->Date > DAYS_PER_MONTH_MAX || date->Month > MONTHS_PER_YEAR) {
 		return false;
@@ -123,7 +123,7 @@ bool clock_save_date(const clock_date_t* date)
 	return true;
 }
 
-bool clock_get_rtc_time(clock_time_t* time)
+bool get_clock_rtc_time(clock_time_t* time)
 {
 	if (DS1307_GetHour(&time->Hours) != DS1307_OK) {
 		return false;
@@ -137,7 +137,7 @@ bool clock_get_rtc_time(clock_time_t* time)
 	return true;
 }
 
-bool clock_get_rtc_date(clock_date_t* date)
+bool get_clock_rtc_date(clock_date_t* date)
 {
 	if (DS1307_GetYear(&date->Year) != DS1307_OK) {
 		return false;
@@ -152,7 +152,7 @@ bool clock_get_rtc_date(clock_date_t* date)
 }
 
 
-uint32_t clock_datetime_to_seconds(const clock_date_t* date, const clock_time_t* time)
+uint32_t get_clock_datetime_to_seconds(const clock_date_t* date, const clock_time_t* time)
 {
 	uint16_t year = date->Year % 100;
 	uint32_t days = year * DAYS_PER_YEAR;
@@ -170,29 +170,29 @@ uint32_t clock_datetime_to_seconds(const clock_date_t* date, const clock_time_t*
 	return seconds;
 }
 
-uint32_t clock_get_timestamp()
+uint32_t get_clock_timestamp()
 {
 	clock_date_t date = {0};
 	clock_time_t time = {0};
 
-	if (!clock_get_rtc_date(&date)) {
+	if (!get_clock_rtc_date(&date)) {
 #if CLOCK_BEDUG
 		BEDUG_ASSERT(false, "Unable to get current date");
 #endif
 		memset((void*)&date, 0, sizeof(date));
 	}
 
-	if (!clock_get_rtc_time(&time)) {
+	if (!get_clock_rtc_time(&time)) {
 #if CLOCK_BEDUG
 		BEDUG_ASSERT(false, "Unable to get current time");
 #endif
 		memset((void*)&time, 0, sizeof(time));
 	}
 
-	return clock_datetime_to_seconds(&date, &time);
+	return get_clock_datetime_to_seconds(&date, &time);
 }
 
-void clock_seconds_to_datetime(const uint32_t seconds, clock_date_t* date, clock_time_t* time)
+void get_clock_seconds_to_datetime(const uint32_t seconds, clock_date_t* date, clock_time_t* time)
 {
 	memset(date, 0, sizeof(clock_date_t));
 	memset(time, 0, sizeof(clock_time_t));
@@ -240,7 +240,7 @@ char* get_clock_time_format()
 	clock_date_t date = {0};
 	clock_time_t time = {0};
 
-	if (!clock_get_rtc_date(&date)) {
+	if (!get_clock_rtc_date(&date)) {
 #if CLOCK_BEDUG
 		BEDUG_ASSERT(false, "Unable to get current date");
 #endif
@@ -248,7 +248,7 @@ char* get_clock_time_format()
 		return format_time;
 	}
 
-	if (!clock_get_rtc_time(&time)) {
+	if (!get_clock_rtc_time(&time)) {
 #if CLOCK_BEDUG
 		BEDUG_ASSERT(false, "Unable to get current time");
 #endif
@@ -280,7 +280,7 @@ char* get_clock_time_format_by_sec(uint32_t seconds)
 	clock_date_t date = {0};
 	clock_time_t time = {0};
 
-	clock_seconds_to_datetime(seconds, &date, &time);
+	get_clock_seconds_to_datetime(seconds, &date, &time);
 
 	snprintf(
 		format_time,

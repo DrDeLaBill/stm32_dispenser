@@ -20,7 +20,7 @@ extern "C" {
 #endif
 
 
-#define DEVICE_MAJOR (0)
+#define DEVICE_MAJOR (2)
 #define DEVICE_MINOR (1)
 #define DEVICE_PATCH (0)
 
@@ -32,7 +32,7 @@ extern "C" {
  * 0x0003 - Logger
  * 0x0004 - B.O.B.A.
  * 0x0005 - Calibrate station
- * 0x0006 - Dispenser
+ * 0x0006 - Dispenser-mini
  */
 #define DEVICE_TYPE           ((uint16_t)0x0006)
 #define SW_VERSION            ((uint8_t)0x01)
@@ -43,13 +43,18 @@ extern "C" {
 #define BEDACODE              ((uint32_t)0xBEDAC0DE)
 
 
+#define MILLILITERS_IN_LITER  (1000)
+
+#define SETTINGS_OUTPUTS_CNT  (4)
+#define SETTINGS_INPUTS_CNT   (6)
+
+
 typedef enum _SettingsStatus {
     SETTINGS_OK = 0,
     SETTINGS_ERROR
 } SettingsStatus;
 
 
-// TODO: pump speed must be recalculate by liquid level, after receive from server
 typedef struct __attribute__((packed)) _settings_t  {
 	uint32_t bedacode;
 	// Device type
@@ -62,6 +67,38 @@ typedef struct __attribute__((packed)) _settings_t  {
 	uint32_t cf_id;
 	// Remote server url
 	char     url[CHAR_SETIINGS_SIZE];
+	// Enable pump
+	uint8_t  pump_enabled;
+	// Measure delay in milliseconds
+	uint32_t sleep_ms;
+	// Current server log ID
+	uint32_t server_log_id;
+	// Liters ADC value when liquid tank can be considered full
+	uint32_t tank_ADC_min;
+	// Liters ADC value when liquid tank can be considered empty
+	uint32_t tank_ADC_max;
+	// Liters value when liquid tank can be considered full
+	uint32_t tank_ltr_max;
+	// Liters value when liquid tank can be considered empty
+	uint32_t tank_ltr_min;
+	// Target milliliters per day for pump
+	uint32_t pump_target_ml;
+	// Pump speed: milliliters per hour
+	uint32_t pump_speed;
+	// Current pump work sec
+	uint32_t pump_work_sec;
+	// Current day pump downtime sec
+	uint32_t pump_downtime_sec;
+	// Pump work sec for current day
+	uint32_t pump_work_day_sec;
+	// Current log day
+	uint8_t  pump_log_date;
+	// Registrated on server
+	uint8_t  registrated;
+	// Is calibrated
+	uint8_t  calibrated;
+	// Outputs states
+	uint8_t  outputs[SETTINGS_OUTPUTS_CNT];
 } settings_t;
 
 
@@ -85,6 +122,7 @@ void settings_reset(settings_t* other);
 void settings_show();
 
 void set_settings_url(const char* url);
+void set_settings_sleep(uint32_t sleep);
 
 
 #ifdef __cplusplus

@@ -92,13 +92,13 @@ void StackWatchdog::check()
 	if (freeRamBytes && lastFree && heap_end < stack_end && freePercent > STACK_PERCENT_MIN) {
 		reset_error(STACK_ERROR);
 	} else {
-		set_error(STACK_ERROR);
 #if WATCHDOG_BEDUG
 		BEDUG_ASSERT(
-			false,
+			is_error(STACK_ERROR),
 			"STACK OVERFLOW IS POSSIBLE or the function STACK_WATCHDOG_FILL_RAM was not used on startup"
 		);
 #endif
+		set_error(STACK_ERROR);
 	}
 
 

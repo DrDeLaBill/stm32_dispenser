@@ -5,17 +5,18 @@
 #include <stdbool.h>
 
 #ifndef NO_SYSTEM_RTC_TEST
-#   include "clock.h"
+#   include <clock.h>
 #endif
 #include "main.h"
 #include "glog.h"
+#include "clock.h"
 #include "hal_defs.h"
 
 
 const char SYSTEM_TAG[] = "SYS";
 
 
-uint16_t SYSTEM_ADC_VOLTAGE = 0;
+uint16_t SYSTEM_ADC_VOLTAGE[3] = {0};
 bool system_hsi_initialized = false;
 
 
@@ -122,7 +123,7 @@ void system_rtc_test(void)
 #   if SYSTEM_BEDUG
 	printPretty("Get date test: ");
 #   endif
-	if (!clock_get_rtc_date(&readDate)) {
+	if (!get_clock_rtc_date(&readDate)) {
 #   if SYSTEM_BEDUG
 		gprint("   error\n");
 #   endif
@@ -132,7 +133,7 @@ void system_rtc_test(void)
 	gprint("   OK\n");
 	printPretty("Get time test: ");
 #   endif
-	if (!clock_get_rtc_time(&readTime)) {
+	if (!get_clock_rtc_time(&readTime)) {
 #   if SYSTEM_BEDUG
 		gprint("   error\n");
 #   endif
@@ -142,7 +143,7 @@ void system_rtc_test(void)
 	gprint("   OK\n");
 	printPretty("Save date test: ");
 #   endif
-	if (!clock_save_date(&readDate)) {
+	if (!save_clock_date(&readDate)) {
 #   if SYSTEM_BEDUG
 		gprint("  error\n");
 #   endif
@@ -152,7 +153,7 @@ void system_rtc_test(void)
 	gprint("  OK\n");
 	printPretty("Save time test: ");
 #   endif
-	if (!clock_save_time(&readTime)) {
+	if (!save_clock_time(&readTime)) {
 #   if SYSTEM_BEDUG
 		gprint("  error\n");
 #   endif
@@ -168,7 +169,7 @@ void system_rtc_test(void)
 #   if SYSTEM_BEDUG
 	printPretty("Check date test: ");
 #   endif
-	if (!clock_get_rtc_date(&checkDate)) {
+	if (!get_clock_rtc_date(&checkDate)) {
 #   if SYSTEM_BEDUG
 		gprint(" error\n");
 #   endif
@@ -184,7 +185,7 @@ void system_rtc_test(void)
 	gprint(" OK\n");
 	printPretty("Check time test: ");
 #   endif
-	if (!clock_get_rtc_time(&checkTime)) {
+	if (!get_clock_rtc_time(&checkTime)) {
 #   if SYSTEM_BEDUG
 		gprint(" error\n");
 #   endif
@@ -259,7 +260,7 @@ void system_rtc_test(void)
 
 		clock_date_t tmpDate = {0};
 		clock_time_t tmpTime = {0};
-		clock_seconds_to_datetime(seconds[i], &tmpDate, &tmpTime);
+		get_clock_seconds_to_datetime(seconds[i], &tmpDate, &tmpTime);
 		if (memcmp((void*)&tmpDate, (void*)&dates[i], sizeof(tmpDate))) {
 #   if SYSTEM_BEDUG
 			gprint("            error\n");
@@ -273,7 +274,7 @@ void system_rtc_test(void)
 			system_error_handler(RTC_ERROR, NULL);
 		}
 
-		uint32_t tmpSeconds = clock_datetime_to_seconds(&dates[i], &times[i]);
+		uint32_t tmpSeconds = get_clock_datetime_to_seconds(&dates[i], &times[i]);
 		if (tmpSeconds != seconds[i]) {
 #   if SYSTEM_BEDUG
 			gprint("            error\n");
@@ -360,7 +361,7 @@ void system_post_load(void)
 #ifdef STM32F1
 	HAL_ADCEx_Calibration_Start(&hadc1);
 #endif
-	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&SYSTEM_ADC_VOLTAGE, 1);
+	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)SYSTEM_ADC_VOLTAGE, 3);
 	uint64_t counter = 0;
 	uint64_t count_max = HAL_RCC_GetHCLKFreq() * 10;
 	util_old_timer_t timer = {0};
@@ -427,6 +428,29 @@ void system_error_handler(SOUL_STATUS error, void (*error_loop) (void))
 	}
 
 	/* Custom events begin */
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+	__HAL_RCC_GPIOA_CLK_ENABLE();
+	__HAL_RCC_GPIOB_CLK_ENABLE();
+
+	GPIO_InitStruct.Pin = RED_LED_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+	GPIO_InitStruct.Pin = LAMP_FET_Pin|GREEN_LED_Pin|MOT_FET_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+	HAL_GPIO_WritePin(MOT_FET_GPIO_Port, MOT_FET_Pin, GPIO_PIN_RESET);
+
+	HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(LAMP_FET_GPIO_Port, LAMP_FET_Pin, GPIO_PIN_SET);
+	util_old_timer_t led_timer = {0};
 	/* Custom events end */
 
 	if (rtc_initialized) {
@@ -445,6 +469,12 @@ void system_error_handler(SOUL_STATUS error, void (*error_loop) (void))
 		}
 
 		/* Custom events begin */
+		if (!util_old_timer_wait(&led_timer)) {
+			util_old_timer_start(&led_timer, 300);
+			HAL_GPIO_TogglePin(LAMP_FET_GPIO_Port, LAMP_FET_Pin);
+			HAL_GPIO_TogglePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+			HAL_GPIO_TogglePin(RED_LED_GPIO_Port, RED_LED_Pin);
+		}
 		/* Custom events end */
 
 
@@ -470,10 +500,10 @@ void system_error_handler(SOUL_STATUS error, void (*error_loop) (void))
 
 uint32_t get_system_power(void)
 {
-	if (!SYSTEM_ADC_VOLTAGE) {
+	if (!SYSTEM_ADC_VOLTAGE[0]) {
 		return 0;
 	}
-	return (STM_ADC_MAX * STM_REF_VOLTAGEx10) / SYSTEM_ADC_VOLTAGE;
+	return (STM_ADC_MAX * STM_REF_VOLTAGEx10) / SYSTEM_ADC_VOLTAGE[0];
 }
 
 void system_reset_i2c_errata(void)

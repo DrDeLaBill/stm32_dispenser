@@ -40,7 +40,7 @@ void RTCWatchdog::check()
 	clock_date_t date = {};
 	clock_time_t time = {};
 
-	if (!clock_get_rtc_date(&date)) {
+	if (!get_clock_rtc_date(&date)) {
 		system_reset_i2c_errata();
 		reset_status(DS1307_READY);
 		set_error(RTC_ERROR);
@@ -49,7 +49,7 @@ void RTCWatchdog::check()
 		reset_error(RTC_ERROR);
 	}
 
-	if (!clock_get_rtc_time(&time)) {
+	if (!get_clock_rtc_time(&time)) {
 		system_reset_i2c_errata();
 		reset_status(DS1307_READY);
 		set_error(RTC_ERROR);
@@ -73,7 +73,7 @@ void RTCWatchdog::check()
 	}
 
 	if (updateFlag) {
-		if (!clock_save_date(&date)) {
+		if (!save_clock_date(&date)) {
 			system_reset_i2c_errata();
 			reset_status(DS1307_READY);
 			set_error(RTC_ERROR);
@@ -107,7 +107,7 @@ void RTCWatchdog::check()
 	}
 
 	if (updateFlag) {
-		if (!clock_save_time(&time)) {
+		if (!save_clock_time(&time)) {
 			system_reset_i2c_errata();
 			reset_status(DS1307_READY);
 			set_error(RTC_ERROR);

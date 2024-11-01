@@ -45,19 +45,19 @@ typedef struct _clock_time_t {
 } clock_time_t;
 
 
-uint16_t clock_get_year();
-uint8_t  clock_get_month();
-uint8_t  clock_get_date();
-uint8_t  clock_get_hour();
-uint8_t  clock_get_minute();
-uint8_t  clock_get_second();
-bool     clock_save_time(const clock_time_t* time);
-bool     clock_save_date(const clock_date_t* date);
-bool     clock_get_rtc_time(clock_time_t* time);
-bool     clock_get_rtc_date(clock_date_t* date);
-uint32_t clock_datetime_to_seconds(const clock_date_t* date, const clock_time_t* time);
-uint32_t clock_get_timestamp();
-void     clock_seconds_to_datetime(const uint32_t seconds, clock_date_t* date, clock_time_t* time);
+uint16_t get_clock_year();
+uint8_t  get_clock_month();
+uint8_t  get_clock_date();
+uint8_t  get_clock_hour();
+uint8_t  get_clock_minute();
+uint8_t  get_clock_second();
+bool     save_clock_time(const clock_time_t* time);
+bool     save_clock_date(const clock_date_t* date);
+bool     get_clock_rtc_time(clock_time_t* time);
+bool     get_clock_rtc_date(clock_date_t* date);
+uint32_t get_clock_datetime_to_seconds(const clock_date_t* date, const clock_time_t* time);
+uint32_t get_clock_timestamp();
+void     get_clock_seconds_to_datetime(const uint32_t seconds, clock_date_t* date, clock_time_t* time);
 char*    get_clock_time_format();
 char*    get_clock_time_format_by_sec(uint32_t seconds);
 bool     set_clock_ready(bool);
