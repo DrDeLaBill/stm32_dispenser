@@ -6,6 +6,7 @@
 
 #include "main.h"
 #include "soul.h"
+#include "glog.h"
 #include "system.h"
 #include "hal_defs.h"
 
@@ -15,8 +16,13 @@
 #   include "w25qxx.h"
 #endif
 
+#include "StorageAT.h"
+
 
 #define ERRORS_MAX (5)
+
+
+extern StorageAT* storage;
 
 
 MemoryWatchdog::MemoryWatchdog():
@@ -36,6 +42,23 @@ void MemoryWatchdog::check()
 #else
 	flash_status_t status = FLASH_OK;
 #endif
+
+#ifndef EEPROM_MODE
+	if (is_error(MEMORY_INIT_ERROR)) {
+		if (flash_w25qxx_init() == FLASH_OK) {
+			reset_error(MEMORY_INIT_ERROR);
+			storage->setPagesCount(flash_w25qxx_get_pages_count());
+#ifdef WATCHDOG_BEDUG
+			printTagLog(TAG, "flash init success");
+#endif
+		} else {
+#ifdef WATCHDOG_BEDUG
+			printTagLog(TAG, "flash init error");
+#endif
+		}
+	}
+#endif
+
 	if (is_status(MEMORY_READ_FAULT) ||
 		is_status(MEMORY_WRITE_FAULT) ||
 		is_error(MEMORY_ERROR)
@@ -60,6 +83,10 @@ void MemoryWatchdog::check()
 			errors++;
 		}
 #else
+		if (flash_w25qxx_init() != FLASH_OK) {
+			set_error(MEMORY_INIT_ERROR);
+		}
+
 		uint32_t address = static_cast<uint32_t>(rand()) % (flash_w25qxx_get_pages_count() * FLASH_W25_PAGE_SIZE);
 
 		status = flash_w25qxx_read(address, &data, sizeof(data));

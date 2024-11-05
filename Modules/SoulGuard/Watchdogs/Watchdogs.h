@@ -8,7 +8,7 @@
 
 
 #ifdef DEBUG
-#   define WATCHDOG_BEDUG   (0)
+#   define WATCHDOG_BEDUG   (1)
 #endif
 
 #define WATCHDOG_TIMEOUT_MS ((uint32_t)100)
@@ -75,6 +75,7 @@ struct PowerWatchdog
 struct MemoryWatchdog
 {
 private:
+	static constexpr char TAG[] = "MEMw";
 	static constexpr uint32_t TIMEOUT_MS = 15000;
 
 	utl::Timer errorTimer;

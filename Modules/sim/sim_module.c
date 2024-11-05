@@ -283,7 +283,6 @@ void _sim_start_iterate_s(void)
 {
 	if (_sim_validate(start_cmds[sim_state.counter].response)) {
 		sim_state.counter++;
-		sim_state.errors = 0;
 		_sim_clear_response();
 		fsm_gc_push_event(&sim_fsm, &sim_success_e);
 	}

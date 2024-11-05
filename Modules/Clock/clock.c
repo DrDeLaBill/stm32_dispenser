@@ -311,6 +311,22 @@ bool is_clock_ready()
 	return (bool)value;
 }
 
+bool get_clock_ram(const uint8_t idx, uint8_t* data)
+{
+	if (DS1307_REG_RAM + idx > DS1307_REG_RAM_END) {
+		return false;
+	}
+	return DS1307_GetRegByte(DS1307_REG_RAM + idx, data) == DS1307_OK;
+}
+
+bool set_clock_ram(const uint8_t idx, uint8_t data)
+{
+	if (DS1307_REG_RAM + idx > DS1307_REG_RAM_END) {
+		return false;
+	}
+	return DS1307_SetRegByte(DS1307_REG_RAM + idx, data) == DS1307_OK;
+}
+
 uint8_t _get_days_in_month(uint16_t year, Months month)
 {
 	switch (month) {

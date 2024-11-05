@@ -149,6 +149,7 @@ int main(void)
   MX_RTC_Init();
   MX_CAN_Init();
   MX_SPI1_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
 	HAL_Delay(100);
@@ -171,9 +172,10 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-	utl::Timer errTimer(40 * SECOND_MS);
+	utl::Timer errTimer(300 * SECOND_MS);
 
 	set_error(STACK_ERROR);
+	errTimer.start();
 	while (has_errors()) {
 		hardGuard.defend();
 
@@ -182,32 +184,28 @@ int main(void)
 		}
 	}
 
-	set_error(MEMORY_INIT_ERROR);
-	errTimer.start();
-	while(flash_w25qxx_init() != FLASH_OK) {
-		if (!errTimer.wait()) {
-			system_error_handler(MEMORY_INIT_ERROR, error_loop);
-		}
+	if (flash_w25qxx_init() != FLASH_OK) {
+		set_error(MEMORY_INIT_ERROR);
 	}
-	reset_error(MEMORY_INIT_ERROR);
-
 	storage = new StorageAT(
 		flash_w25qxx_get_pages_count(),
 		&storageDriver,
 		FLASH_W25_SECTOR_SIZE
 	);
 
-	errTimer.start();
-	while (has_errors() || is_status(LOADING)) {
-		hardGuard.defend();
-		softGuard.defend();
-
-		if (!errTimer.wait()) {
-			system_error_handler((SOUL_STATUS)get_first_error(), error_loop);
-		}
-	}
-
 	system_rtc_test();
+
+	settings_reset(&settings);
+	if (is_error(MEMORY_INIT_ERROR)) {
+#ifdef DEBUG
+		printTagLog(MAIN_TAG, "flash init error");
+#endif
+		settings_show();
+	} else {
+#ifdef DEBUG
+		printTagLog(MAIN_TAG, "flash init success");
+#endif
+	}
 
 	sim_begin();
 
@@ -227,11 +225,22 @@ int main(void)
 	kFLOPSTimer.start();
 #endif
 
-	set_status(WORKING);
+	// TODO: remove start
+	util_old_timer_t tmp_timer = {};
+	// TODO: remove end
+
 	set_status(HAS_NEW_RECORD);
 	errTimer.start();
 	while (1)
 	{
+		// TODO: remove start
+		if (!util_old_timer_wait(&tmp_timer)) {
+			util_old_timer_start(&tmp_timer, 1000);
+			HAL_UART_Transmit(&huart2, (uint8_t*)&kFLOPScounter, sizeof(kFLOPScounter), 100);
+		}
+		// TODO: remove end
+
+
 		static bool isSoftguard = false;
 		isSoftguard ? hardGuard.defend() : softGuard.defend();
 		isSoftguard = !isSoftguard;
@@ -281,11 +290,14 @@ int main(void)
         log_tick();
 
 		if (has_errors() || is_status(LOADING)) {
+			reset_status(WORKING);
 			continue;
 		}
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+		set_status(WORKING);
+
 		errTimer.start();
 	}
   /* USER CODE END 3 */

@@ -62,6 +62,8 @@ char*    get_clock_time_format();
 char*    get_clock_time_format_by_sec(uint32_t seconds);
 bool     set_clock_ready(bool);
 bool     is_clock_ready();
+bool     get_clock_ram(const uint8_t idx, uint8_t* data);
+bool     set_clock_ram(const uint8_t idx, uint8_t data);
 
 
 #ifdef __cplusplus

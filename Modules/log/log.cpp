@@ -29,6 +29,7 @@
 static bool _find_param(char** dst, const char* src, const char* param);
 static void _make_record(RecordDB& record);
 static bool _update_time(char* data);
+static void _save_time_in_rtc_ram(uint32_t time_sec);
 static void _clear_log();
 
 
@@ -106,6 +107,8 @@ static util_old_timer_t log_timer = {};
 static util_old_timer_t send_timer = {};
 
 static bool new_record_loaded = false;
+static bool first_request = true;
+static uint32_t sended_id = 0;
 static RecordDB record(0);
 
 
@@ -235,6 +238,17 @@ bool _update_time(char* data)
 	return false;
 }
 
+void _save_time_in_rtc_ram(uint32_t time_sec)
+{
+	for (uint8_t i = sizeof(time_sec); i > 0; i--) {
+		uint8_t byte = (uint8_t)(time_sec & 0xFF);
+		if (!set_clock_ram(i - 1, byte)) {
+			return;
+		}
+		time_sec >>= BITS_IN_BYTE;
+	}
+}
+
 void _clear_log()
 {
 	settings.server_log_id = 0;
@@ -247,23 +261,11 @@ void _clear_log()
 
 void _init_s(void)
 {
-	if (is_status(LOADING) || !is_status(WORKING)) {
-		return;
-	}
-
-	if (has_errors()) {
-		return;
-	}
-
 	fsm_gc_push_event(&log_fsm, &success_e);
 }
 
 void _idle_s(void)
 {
-	if (log_timer.delay != settings.sleep_ms) {
-		log_timer.delay = settings.sleep_ms;
-	}
-
 	if (!util_old_timer_wait(&log_timer) && is_status(DS1307_READY)) {
 		fsm_gc_push_event(&log_fsm, &save_e);
 	}
@@ -300,8 +302,30 @@ void init_tims_a(void)
 {
 	fsm_gc_clear(&log_fsm);
 
+	uint32_t sleep_sec = settings.sleep_ms / SECOND_MS;
+	uint32_t rtc_ram_last_sec = 0;
+	uint8_t  byte = 0;
+	for (uint8_t i = 0; i < sizeof(rtc_ram_last_sec); i++) {
+		rtc_ram_last_sec <<= BITS_IN_BYTE;
+		bool res = get_clock_ram(i, &byte);
+		if (res) {
+			rtc_ram_last_sec |= ((uint32_t)byte & 0xFF);
+		} else {
+			rtc_ram_last_sec = 0;
+			break;
+		}
+	}
+	uint32_t timestamp = get_clock_timestamp();
+	if (rtc_ram_last_sec == 0xFFFFFFFF) {
+		sleep_sec = 1;
+	} else if (timestamp >= rtc_ram_last_sec + sleep_sec) {
+		sleep_sec = 1;
+	} else {
+		sleep_sec -= timestamp - rtc_ram_last_sec;
+	}
+	util_old_timer_start(&log_timer, sleep_sec * SECOND_MS);
+
 	util_old_timer_start(&send_timer, GENERAL_TIMEOUT_MS);
-	util_old_timer_start(&log_timer, settings.sleep_ms);
 }
 
 void check_net_a(void)
@@ -318,6 +342,7 @@ void save_a(void)
 		settings.pump_downtime_sec = 0;
 		set_status(NEED_SAVE_SETTINGS);
 		reset_status(NEW_RECORD_WAS_NOT_SAVED);
+		_save_time_in_rtc_ram(record.record.time);
 		util_old_timer_start(&log_timer, settings.sleep_ms);
 	} else {
 		set_status(NEW_RECORD_WAS_NOT_SAVED);
@@ -372,11 +397,12 @@ void send_a(void)
 		printTagLog(TAG, "error load record");
 #endif
 	}
-	if (is_status(NEW_RECORD_WAS_NOT_SAVED)) {
+	if (!first_request && is_status(NEW_RECORD_WAS_NOT_SAVED)) {
 		util_old_timer_start(&log_timer, settings.sleep_ms);
 		reset_status(NEW_RECORD_WAS_NOT_SAVED);
 		recordStatus = RecordDB::RECORD_OK;
 		_make_record(record);
+		_save_time_in_rtc_ram(record.record.time);
 		record.record.id = settings.server_log_id + 1;
 	}
 	if (// settings.calibrated &&
@@ -413,6 +439,9 @@ void send_a(void)
 			record.record.pump_downtime
 		);
 		new_record_loaded = true;
+		sended_id = record.record.id;
+	} else {
+		sended_id = 0;
 	}
 
 	if (is_status(DS1307_READY)) {
@@ -473,6 +502,10 @@ void parse_a(void)
 		return;
 	}
 	settings.server_log_id = atoi(data_ptr);
+	if (sended_id && sended_id < settings.server_log_id) {
+		util_old_timer_start(&log_timer, GENERAL_TIMEOUT_MS);
+	}
+	first_request = false;
 
 #if LOG_BEDUG
 	printTagLog(TAG, "Recieved response from the server\n");
@@ -550,6 +583,7 @@ void parse_a(void)
 #if LOG_BEDUG
 	printTagLog(TAG, "configuration updated");
 #endif
+	settings_show();
 	set_status(NEED_SAVE_SETTINGS);
 
 	util_old_timer_start(&send_timer, SEND_DELAY_NS);

@@ -383,7 +383,7 @@ void system_post_load(void)
 		counter++;
 	}
 
-	if (has_errors()) {
+	if (is_error(RCC_ERROR) || is_error(POWER_ERROR)) {
 		system_error_handler(
 			(get_first_error() == INTERNAL_ERROR) ?
 				LOAD_ERROR :

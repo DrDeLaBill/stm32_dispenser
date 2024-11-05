@@ -348,6 +348,10 @@ DS1307_STATUS DS1307_SetTimeZone(int8_t hr, uint8_t min) {
 
 DS1307_STATUS DS1307_SetInitialized(uint8_t value)
 {
+	uint8_t res = 0;
+	if (DS1307_GetInitialized(&res) != DS1307_OK) {
+		return DS1307_ERROR;
+	}
 	for (uint8_t i = 0; i < sizeof(BEDAC0DE); i++) {
 		if (DS1307_SetRegByte(
 				(uint8_t)DS1307_REG_RAM_RDY_BE + i,
@@ -359,6 +363,13 @@ DS1307_STATUS DS1307_SetInitialized(uint8_t value)
 	}
 	if (DS1307_SetRegByte((uint8_t)DS1307_REG_RAM_RDY, value) != DS1307_OK) {
 		return DS1307_ERROR;
+	}
+	if (!res) {
+		for (unsigned i = DS1307_REG_RAM; i <= DS1307_REG_RAM_END; i++)  {
+			if (DS1307_SetRegByte((uint8_t)i, 0xFF) != DS1307_OK) {
+				return DS1307_ERROR;
+			}
+		}
 	}
 	return DS1307_OK;
 }
