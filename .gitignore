@@ -45,3 +45,5 @@ build*
 *.bin
 *.hex
 *.launch
+*Debug.cfg
+*Release.cfg

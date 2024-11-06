@@ -83,7 +83,7 @@ void MemoryWatchdog::check()
 			errors++;
 		}
 #else
-		if (flash_w25qxx_init() != FLASH_OK) {
+		if (!is_error(MEMORY_INIT_ERROR) && flash_w25qxx_init() != FLASH_OK) {
 			set_error(MEMORY_INIT_ERROR);
 		}
 

@@ -9,7 +9,7 @@
 
 
 #ifdef DEBUG
-#   define RECORD_BEDUG (0)
+#   define RECORD_BEDUG (1)
 #endif
 
 
@@ -29,9 +29,9 @@ public:
     	uint32_t time;          // Record time
     	int32_t  level;         // Liquid level
     	uint16_t press;         // First pressure sensor
-    	uint32_t pump_wok_time; // Log pump downtime sec
+    	uint32_t pump_wok_time; // Log pump down time sec
     	uint32_t pump_downtime; // Log pump work sec
-    	uint8_t  inputs;
+    	uint8_t  inputs;        // Input pins values
     } Record;
 
     RecordDB(uint32_t recordId);

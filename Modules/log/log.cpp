@@ -30,6 +30,7 @@ static bool _find_param(char** dst, const char* src, const char* param);
 static void _make_record(RecordDB& record);
 static bool _update_time(char* data);
 static void _save_time_in_rtc_ram(uint32_t time_sec);
+static void _load_time_from_rtc_ram();
 static void _clear_log();
 
 
@@ -249,6 +250,35 @@ void _save_time_in_rtc_ram(uint32_t time_sec)
 	}
 }
 
+void _load_time_from_rtc_ram()
+{
+	uint32_t sleep_sec = settings.sleep_ms / SECOND_MS;
+	uint32_t rtc_ram_last_sec = 0;
+	uint8_t  byte = 0;
+	for (uint8_t i = 0; i < sizeof(rtc_ram_last_sec); i++) {
+		rtc_ram_last_sec <<= BITS_IN_BYTE;
+		bool res = get_clock_ram(i, &byte);
+		if (res) {
+			rtc_ram_last_sec |= ((uint32_t)byte & 0xFF);
+		} else {
+			rtc_ram_last_sec = 0;
+			break;
+		}
+	}
+	uint32_t timestamp = get_clock_timestamp();
+	if (rtc_ram_last_sec == 0xFFFFFFFF) {
+		sleep_sec = 1;
+	} else if (timestamp >= rtc_ram_last_sec + sleep_sec) {
+		sleep_sec = 1;
+	} else {
+		sleep_sec -= timestamp - rtc_ram_last_sec;
+	}
+	util_old_timer_start(&log_timer, sleep_sec * SECOND_MS);
+#if LOG_BEDUG
+	printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
+#endif
+}
+
 void _clear_log()
 {
 	settings.server_log_id = 0;
@@ -266,6 +296,10 @@ void _init_s(void)
 
 void _idle_s(void)
 {
+	if (log_timer.delay > settings.sleep_ms) {
+		log_timer.delay = settings.sleep_ms;
+	}
+
 	if (!util_old_timer_wait(&log_timer) && is_status(DS1307_READY)) {
 		fsm_gc_push_event(&log_fsm, &save_e);
 	}
@@ -302,28 +336,7 @@ void init_tims_a(void)
 {
 	fsm_gc_clear(&log_fsm);
 
-	uint32_t sleep_sec = settings.sleep_ms / SECOND_MS;
-	uint32_t rtc_ram_last_sec = 0;
-	uint8_t  byte = 0;
-	for (uint8_t i = 0; i < sizeof(rtc_ram_last_sec); i++) {
-		rtc_ram_last_sec <<= BITS_IN_BYTE;
-		bool res = get_clock_ram(i, &byte);
-		if (res) {
-			rtc_ram_last_sec |= ((uint32_t)byte & 0xFF);
-		} else {
-			rtc_ram_last_sec = 0;
-			break;
-		}
-	}
-	uint32_t timestamp = get_clock_timestamp();
-	if (rtc_ram_last_sec == 0xFFFFFFFF) {
-		sleep_sec = 1;
-	} else if (timestamp >= rtc_ram_last_sec + sleep_sec) {
-		sleep_sec = 1;
-	} else {
-		sleep_sec -= timestamp - rtc_ram_last_sec;
-	}
-	util_old_timer_start(&log_timer, sleep_sec * SECOND_MS);
+	_load_time_from_rtc_ram();
 
 	util_old_timer_start(&send_timer, GENERAL_TIMEOUT_MS);
 }
@@ -344,9 +357,15 @@ void save_a(void)
 		reset_status(NEW_RECORD_WAS_NOT_SAVED);
 		_save_time_in_rtc_ram(record.record.time);
 		util_old_timer_start(&log_timer, settings.sleep_ms);
+#if LOG_BEDUG
+		printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
+#endif
 	} else {
 		set_status(NEW_RECORD_WAS_NOT_SAVED);
 		util_old_timer_start(&log_timer, GENERAL_TIMEOUT_MS);
+#if LOG_BEDUG
+		printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
+#endif
 	}
 }
 
@@ -385,7 +404,7 @@ void send_a(void)
 		get_clock_time_format()
 	);
 
-	RecordDB::RecordStatus recordStatus = RecordDB::RECORD_ERROR;
+	RecordDB::RecordStatus recordStatus = RecordDB::RECORD_NO_LOG;
 	if (!new_record_loaded && is_status(HAS_NEW_RECORD)) {
 		record.setRecordId(settings.server_log_id);
 		recordStatus = record.loadNext();
@@ -399,6 +418,9 @@ void send_a(void)
 	}
 	if (!first_request && is_status(NEW_RECORD_WAS_NOT_SAVED)) {
 		util_old_timer_start(&log_timer, settings.sleep_ms);
+#if LOG_BEDUG
+		printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
+#endif
 		reset_status(NEW_RECORD_WAS_NOT_SAVED);
 		recordStatus = RecordDB::RECORD_OK;
 		_make_record(record);
@@ -504,6 +526,9 @@ void parse_a(void)
 	settings.server_log_id = atoi(data_ptr);
 	if (sended_id && sended_id < settings.server_log_id) {
 		util_old_timer_start(&log_timer, GENERAL_TIMEOUT_MS);
+#if LOG_BEDUG
+		printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
+#endif
 	}
 	first_request = false;
 
@@ -542,6 +567,7 @@ void parse_a(void)
 
 	if (_find_param(&data_ptr, var_ptr, CF_SLEEP_FIELD)) {
 		set_settings_sleep(atoi(data_ptr) * SECOND_MS);
+		_load_time_from_rtc_ram();
 	}
 
 	if (_find_param(&data_ptr, var_ptr, CF_SPEED_FIELD)) {
@@ -586,7 +612,19 @@ void parse_a(void)
 	settings_show();
 	set_status(NEED_SAVE_SETTINGS);
 
-	util_old_timer_start(&send_timer, SEND_DELAY_NS);
+
+	RecordDB::RecordStatus recordStatus = RecordDB::RECORD_NO_LOG;
+	if (is_status(HAS_NEW_RECORD)) {
+		record.setRecordId(settings.server_log_id);
+		recordStatus = record.loadNext();
+	}
+	if (recordStatus == RecordDB::RECORD_OK) {
+		util_old_timer_start(&send_timer, GENERAL_TIMEOUT_MS);
+		set_status(HAS_NEW_RECORD);
+	} else {
+		util_old_timer_start(&send_timer, SEND_DELAY_NS);
+		reset_status(HAS_NEW_RECORD);
+	}
 }
 
 void send_timeout_a(void)
