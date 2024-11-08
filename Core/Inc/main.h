@@ -103,7 +103,7 @@ int _write(int file, uint8_t *ptr, int len);
 
 // BEDUG UART
 extern UART_HandleTypeDef      huart3;
-#define COMMAND_UART           (huart3)
+#define CMD_UART               (huart3)
 #define BEDUG_UART             (huart3)
 
 // SIM module

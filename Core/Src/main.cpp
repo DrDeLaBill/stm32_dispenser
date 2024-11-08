@@ -22,6 +22,7 @@
 #include "can.h"
 #include "dma.h"
 #include "i2c.h"
+#include "iwdg.h"
 #include "rtc.h"
 #include "spi.h"
 #include "usart.h"
@@ -33,6 +34,7 @@
 #include <string.h>
 
 #include "out.h"
+#include "cmd.h"
 #include "log.h"
 #include "glog.h"
 #include "pump.h"
@@ -92,6 +94,7 @@ void error_loop();
 StorageDriver storageDriver;
 StorageAT* storage;
 
+char cmd_input_chr = 0;
 char sim_input_chr = 0;
 
 SoulGuard<
@@ -150,6 +153,7 @@ int main(void)
   MX_CAN_Init();
   MX_SPI1_Init();
   MX_USART2_UART_Init();
+  MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
 
 	HAL_Delay(100);
@@ -164,6 +168,8 @@ int main(void)
 	DS1307_Init();
 	// Sim module
 	HAL_UART_Receive_IT(&SIM_MODULE_UART, (uint8_t*) &sim_input_chr, sizeof(char));
+	// CMD module
+	HAL_UART_Receive_IT(&SIM_MODULE_UART, (uint8_t*) &cmd_input_chr, sizeof(char));
 
 	gprint("\n\n\n");
 	printTagLog(MAIN_TAG, "The device is loading");
@@ -289,6 +295,13 @@ int main(void)
         // Record & settings synchronize process
         log_tick();
 
+        // CMD process
+        cmd_process();
+
+#ifndef DEBUG
+		HAL_IWDG_Refresh(&hiwdg);
+#endif
+
 		if (has_errors() || is_status(LOADING)) {
 			reset_status(WORKING);
 			continue;
@@ -349,6 +362,10 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+
+  /** Enables the Clock Security System
+  */
+  HAL_RCC_EnableCSS();
 }
 
 /* USER CODE BEGIN 4 */
@@ -360,11 +377,63 @@ void error_loop()
 	isSoftguard = !isSoftguard;
 }
 
+void HAL_RCC_CSSCallback(void)
+{
+	__disable_irq();
+
+	set_error(RCC_FAULT);
+	set_error(RCC_ERROR);
+
+	RCC->CIR |= RCC_CIR_CSSC;
+
+	__TIM4_CLK_ENABLE();
+	unsigned count_multiplier = 10;
+	unsigned count_cnt = 1 * count_multiplier * SECOND_MS;
+	unsigned presc = HAL_RCC_GetSysClockFreq() / (count_multiplier * SECOND_MS);
+	TIM4->SR = 0;
+	TIM4->PSC = presc - 1;
+	TIM4->ARR = count_cnt - 1;
+	TIM4->CNT = 0;
+	TIM4->CR1 &= ~(TIM_CR1_DIR);
+
+	TIM4->CR1 |= TIM_CR1_CEN;
+	while (!(TIM4->SR & TIM_SR_CC1IF));
+	TIM4->SR &= ~(TIM_SR_UIF | TIM_SR_CC1IF);
+
+	TIM4->CNT = 0;
+	RCC->CR |= RCC_CR_HSEON;
+	while (!(TIM4->SR & TIM_SR_CC1IF)) {
+		if (RCC->CR & RCC_CR_HSERDY) {
+			reset_error(RCC_FAULT);
+			reset_error(RCC_ERROR);
+			break;
+		}
+	}
+
+	TIM4->CR1 &= ~(TIM_CR1_CEN);
+	__TIM4_CLK_DISABLE();
+
+	if (is_error(RCC_ERROR)) {
+		system_clock_hsi_config();
+	} else {
+		SystemClock_Config();
+	}
+	reset_error(NON_MASKABLE_INTERRUPT);
+	reset_error(RCC_ERROR);
+
+	__enable_irq();
+}
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
-    if (huart == &SIM_MODULE_UART) {
-        sim_proccess_input(sim_input_chr);
-        HAL_UART_Receive_IT(&SIM_MODULE_UART, (uint8_t*)&sim_input_chr, 1);
-    }
+	if (huart->Instance == SIM_MODULE_UART.Instance) {
+		sim_proccess_input(sim_input_chr);
+		HAL_UART_Receive_IT(&SIM_MODULE_UART, (uint8_t*)&sim_input_chr, 1);
+	} else if (huart->Instance == CMD_UART.Instance) {
+		cmd_input(cmd_input_chr);
+		HAL_UART_Receive_IT(&CMD_UART, (uint8_t*)&cmd_input_chr, 1);
+	} else {
+		Error_Handler();
+	}
 }
 
 int _write(int, uint8_t *ptr, int len) {
