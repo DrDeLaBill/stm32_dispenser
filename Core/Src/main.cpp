@@ -48,8 +48,6 @@
 #include "settings.h"
 #include "sim_module.h"
 
-#include "StorageAT.h"
-#include "SoulGuard.h"
 #include "StorageDriver.h"
 
 
@@ -83,30 +81,13 @@ const char MAIN_TAG[] = "MAIN";
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-
-void error_loop();
-
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-StorageDriver storageDriver;
-StorageAT* storage;
-
 char cmd_input_chr = 0;
 char sim_input_chr = 0;
-
-SoulGuard<
-	RestartWatchdog,
-	PowerWatchdog,
-	StackWatchdog
-> hardGuard;
-SoulGuard<
-	MemoryWatchdog,
-	SettingsWatchdog,
-	RTCWatchdog
-> softGuard;
 
 /* USER CODE END 0 */
 
@@ -128,18 +109,20 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-  if (is_error(RCC_ERROR)) {
+  if (is_error(SYS_TICK_ERROR)) {
 	  system_clock_hsi_config();
   } else {
-	  set_error(RCC_ERROR);
+	  set_error(SYS_TICK_ERROR);
   /* USER CODE END Init */
 
   /* Configure the system clock */
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-	  reset_error(RCC_ERROR);
+	  reset_error(SYS_TICK_ERROR);
   }
+
+#ifndef DEBUG
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -155,12 +138,20 @@ int main(void)
   MX_USART2_UART_Init();
   MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
+#else
+	MX_DMA_Init();
+	MX_GPIO_Init();
+	MX_ADC1_Init();
+	MX_I2C1_Init();
+	MX_USART1_UART_Init();
+	MX_USART3_UART_Init();
+	MX_RTC_Init();
+	MX_CAN_Init();
+	MX_SPI1_Init();
+	MX_USART2_UART_Init();
+#endif
 
 	HAL_Delay(100);
-
-	SystemInfo();
-
-	set_status(LOADING);
 
     // Pump
     pump_init();
@@ -182,35 +173,12 @@ int main(void)
 
 	set_error(STACK_ERROR);
 	errTimer.start();
-	while (has_errors()) {
-		hardGuard.defend();
+	while (has_errors() || !is_status(SYSTEM_HARDWARE_READY)) {
+		system_tick();
 
 		if (!errTimer.wait()) {
-			system_error_handler((SOUL_STATUS)get_first_error(), error_loop);
+			system_error_handler((SOUL_STATUS)get_first_error());
 		}
-	}
-
-	if (flash_w25qxx_init() != FLASH_OK) {
-		set_error(MEMORY_INIT_ERROR);
-	}
-	storage = new StorageAT(
-		flash_w25qxx_get_pages_count(),
-		&storageDriver,
-		FLASH_W25_SECTOR_SIZE
-	);
-
-	system_rtc_test();
-
-	settings_reset(&settings);
-	if (is_error(MEMORY_INIT_ERROR)) {
-#ifdef DEBUG
-		printTagLog(MAIN_TAG, "flash init error");
-#endif
-		settings_show();
-	} else {
-#ifdef DEBUG
-		printTagLog(MAIN_TAG, "flash init success");
-#endif
 	}
 
 	sim_begin();
@@ -223,59 +191,35 @@ int main(void)
 
 	printTagLog(MAIN_TAG, "The device has been loaded\n");
 
-#ifdef DEBUG
-	unsigned last_error = get_first_error();
-
-	unsigned kFLOPScounter = 0;
-	utl::Timer kFLOPSTimer(10 * SECOND_MS);
-	kFLOPSTimer.start();
-#endif
 
 	// TODO: remove start
+#ifdef DEBUG
 	util_old_timer_t tmp_timer = {};
+#endif
 	// TODO: remove end
 
 	set_status(HAS_NEW_RECORD);
 	errTimer.start();
+	util_old_timer_start(&tmp_timer, 10000);
 	while (1)
 	{
 		// TODO: remove start
+#ifdef DEBUG
+		static unsigned counter = 0;
 		if (!util_old_timer_wait(&tmp_timer)) {
 			util_old_timer_start(&tmp_timer, 1000);
-			HAL_UART_Transmit(&huart2, (uint8_t*)&kFLOPScounter, sizeof(kFLOPScounter), 100);
-		}
-		// TODO: remove end
-
-
-		static bool isSoftguard = false;
-		isSoftguard ? hardGuard.defend() : softGuard.defend();
-		isSoftguard = !isSoftguard;
-
-#ifdef DEBUG
-		unsigned error = get_first_error();
-		if (error && last_error != error) {
-			printTagLog(MAIN_TAG, "New error: %u", error);
-			last_error = error;
-		} else if (last_error != error) {
-			printTagLog(MAIN_TAG, "No errors");
-			last_error = error;
-		}
-
-		kFLOPScounter++;
-		if (!kFLOPSTimer.wait()) {
-			printTagLog(
-				MAIN_TAG,
-				"kFLOPS: %lu.%lu",
-				kFLOPScounter / (10 * SECOND_MS),
-				(kFLOPScounter / SECOND_MS) % 10
-			);
-			kFLOPScounter = 0;
-			kFLOPSTimer.start();
+			HAL_UART_Transmit(&huart2, (uint8_t*)&counter, sizeof(counter), 100);
+			counter++;
 		}
 #endif
+		// TODO: remove end
+
+		system_tick();
+
+		settings_update();
 
 		if (!errTimer.wait()) {
-			system_error_handler((SOUL_STATUS)get_first_error(), error_loop);
+			system_error_handler((SOUL_STATUS)get_first_error());
 		}
 
         // Pump
@@ -302,15 +246,12 @@ int main(void)
 		HAL_IWDG_Refresh(&hiwdg);
 #endif
 
-		if (has_errors() || is_status(LOADING)) {
-			reset_status(WORKING);
+		if (!is_system_ready()) {
 			continue;
 		}
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		set_status(WORKING);
-
 		errTimer.start();
 	}
   /* USER CODE END 3 */
@@ -370,58 +311,53 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
-void error_loop()
+void system_error_loop()
 {
-	static bool isSoftguard = false;
-	isSoftguard ? hardGuard.defend() : softGuard.defend();
-	isSoftguard = !isSoftguard;
+	static bool initialized = false;
+	static util_old_timer_t led_timer = {};
+
+#ifndef DEBUG
+	HAL_IWDG_Refresh(&hiwdg);
+#endif
+
+	if (!initialized) {
+		GPIO_InitTypeDef GPIO_InitStruct = {};
+
+		__HAL_RCC_GPIOA_CLK_ENABLE();
+		__HAL_RCC_GPIOB_CLK_ENABLE();
+
+		GPIO_InitStruct.Pin = RED_LED_Pin;
+		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+		GPIO_InitStruct.Pull = GPIO_NOPULL;
+		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+		HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+		GPIO_InitStruct.Pin = LAMP_FET_Pin|GREEN_LED_Pin|MOT_FET_Pin;
+		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+		GPIO_InitStruct.Pull = GPIO_NOPULL;
+		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+		HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+		HAL_GPIO_WritePin(MOT_FET_GPIO_Port, MOT_FET_Pin, GPIO_PIN_RESET);
+
+		HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(LAMP_FET_GPIO_Port, LAMP_FET_Pin, GPIO_PIN_SET);
+
+	}
+
+	if (util_old_timer_wait(&led_timer)) {
+		return;
+	}
+	util_old_timer_start(&led_timer, 300);
+	HAL_GPIO_TogglePin(LAMP_FET_GPIO_Port, LAMP_FET_Pin);
+	HAL_GPIO_TogglePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+	HAL_GPIO_TogglePin(RED_LED_GPIO_Port, RED_LED_Pin);
 }
 
 void HAL_RCC_CSSCallback(void)
 {
-	__disable_irq();
-
-	set_error(RCC_FAULT);
-	set_error(RCC_ERROR);
-
-	RCC->CIR |= RCC_CIR_CSSC;
-
-	__TIM4_CLK_ENABLE();
-	unsigned count_multiplier = 10;
-	unsigned count_cnt = 1 * count_multiplier * SECOND_MS;
-	unsigned presc = HAL_RCC_GetSysClockFreq() / (count_multiplier * SECOND_MS);
-	TIM4->SR = 0;
-	TIM4->PSC = presc - 1;
-	TIM4->ARR = count_cnt - 1;
-	TIM4->CNT = 0;
-	TIM4->CR1 &= ~(TIM_CR1_DIR);
-
-	TIM4->CR1 |= TIM_CR1_CEN;
-	while (!(TIM4->SR & TIM_SR_CC1IF));
-	TIM4->SR &= ~(TIM_SR_UIF | TIM_SR_CC1IF);
-
-	TIM4->CNT = 0;
-	RCC->CR |= RCC_CR_HSEON;
-	while (!(TIM4->SR & TIM_SR_CC1IF)) {
-		if (RCC->CR & RCC_CR_HSERDY) {
-			reset_error(RCC_FAULT);
-			reset_error(RCC_ERROR);
-			break;
-		}
-	}
-
-	TIM4->CR1 &= ~(TIM_CR1_CEN);
-	__TIM4_CLK_DISABLE();
-
-	if (is_error(RCC_ERROR)) {
-		system_clock_hsi_config();
-	} else {
-		SystemClock_Config();
-	}
-	reset_error(NON_MASKABLE_INTERRUPT);
-	reset_error(RCC_ERROR);
-
-	__enable_irq();
+	system_sys_tick_reanimation();
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
@@ -460,7 +396,7 @@ void Error_Handler(void)
     b_assert(__FILE__, __LINE__, "The error handler has been called");
 #endif
     SOUL_STATUS err = has_errors() ? (SOUL_STATUS)get_first_error() : ERROR_HANDLER_CALLED;
-	system_error_handler(err, error_loop);
+	system_error_handler(err);
   /* USER CODE END Error_Handler_Debug */
 }
 
@@ -479,7 +415,7 @@ void assert_failed(uint8_t *file, uint32_t line)
 	b_assert((char*)file, line, "Wrong parameters value");
 #endif
 	SOUL_STATUS err = has_errors() ? (SOUL_STATUS)get_first_error() : ASSERT_ERROR;
-	system_error_handler(err, error_loop);
+	system_error_handler(err);
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */

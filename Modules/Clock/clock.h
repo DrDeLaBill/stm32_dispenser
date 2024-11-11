@@ -64,6 +64,8 @@ bool     set_clock_ready(bool);
 bool     is_clock_ready();
 bool     get_clock_ram(const uint8_t idx, uint8_t* data);
 bool     set_clock_ram(const uint8_t idx, uint8_t data);
+bool     is_same_date(const clock_date_t* date1, const clock_date_t* date2);
+bool     is_same_time(const clock_time_t* time1, const clock_time_t* time2);
 
 
 #ifdef __cplusplus

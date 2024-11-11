@@ -83,7 +83,7 @@ bool is_tank_empty()
 
 uint32_t _get_cur_liquid_adc()
 {
-	return SYSTEM_ADC_VOLTAGE[1];
+	return get_system_adc(0);
 }
 
 int32_t _get_liquid_liters(uint32_t adc)

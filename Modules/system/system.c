@@ -1,31 +1,315 @@
-/* Copyright © 2023 Georgy E. All rights reserved. */
+/* Copyright © 2024 Georgy E. All rights reserved. */
 
 #include "system.h"
 
 #include <stdbool.h>
 
-#ifndef NO_SYSTEM_RTC_TEST
-#   include <clock.h>
-#endif
 #include "main.h"
 #include "glog.h"
 #include "clock.h"
 #include "hal_defs.h"
 
 
+#define SYSTEM_TIMER TIM4
+
+
+static void _system_start_ram_fill(void);
+static void _system_error_timer_start(uint32_t delay_ms);
+static bool _system_error_timer_wait(void);
+static void _system_error_timer_disable(void);
+
+
 const char SYSTEM_TAG[] = "SYS";
 
 
-uint16_t SYSTEM_ADC_VOLTAGE[3] = {0};
+uint16_t SYSTEM_ADC_VOLTAGE[SYSTEM_ADC_VOLTAGE_COUNT] = {0};
 bool system_hsi_initialized = false;
 
 
-#ifndef IS_SAME_TIME
-#   define IS_SAME_TIME(TIME1, TIME2) (TIME1.Hours   == TIME2.Hours && \
-                                       TIME1.Minutes == TIME2.Minutes && \
-									   TIME1.Seconds == TIME2.Seconds)
+typedef enum _watchdog_type_t {
+	HARDWARE_WATCHDOG,
+	SOFTWARE_WATCHDOG
+} watchdog_type_t;
+
+typedef struct _watchdogs_t {
+	void             (*action)(void);
+	uint32_t         delay_ms;
+	util_old_timer_t timer;
+	watchdog_type_t  type;
+} watchdogs_t;
+
+
+extern void power_watchdog_check();
+extern void restart_watchdog_check();
+extern void sys_clock_watchdog_check();
+extern void ram_watchdog_check();
+extern void rtc_watchdog_check();
+extern void memory_watchdog_check();
+watchdogs_t watchdogs[] = {
+	{restart_watchdog_check,   SECOND_MS / 10, {0,0}, HARDWARE_WATCHDOG},
+	{sys_clock_watchdog_check, SECOND_MS / 10, {0,0}, HARDWARE_WATCHDOG},
+	{ram_watchdog_check,       5 * SECOND_MS,  {0,0}, HARDWARE_WATCHDOG},
+	{power_watchdog_check,     SECOND_MS,      {0,0}, SOFTWARE_WATCHDOG},
+	{rtc_watchdog_check,       SECOND_MS,      {0,0}, SOFTWARE_WATCHDOG},
+	{memory_watchdog_check,    SECOND_MS,      {0,0}, SOFTWARE_WATCHDOG},
+};
+
+void system_pre_load(void)
+{
+	_system_start_ram_fill();
+
+	if (!MCUcheck()) {
+		set_error(MCU_ERROR);
+		system_error_handler(get_first_error());
+		while(1) {}
+	}
+
+	RCC->CR |= RCC_CR_HSEON;
+
+	unsigned counter = 0;
+	while (1) {
+		if (RCC->CR & RCC_CR_HSERDY) {
+			break;
+		}
+
+		if (counter > 0x100) {
+			set_status(SYS_TICK_ERROR);
+			set_error(SYS_TICK_FAULT);
+			break;
+		}
+
+		counter++;
+	}
+
+#if defined(STM32F1)
+	uint32_t backupregister = (uint32_t)BKP_BASE;
+	backupregister += (RTC_BKP_DR1 * 4U);
+	SOUL_STATUS status = (SOUL_STATUS)((*(__IO uint32_t *)(backupregister)) & BKP_DR1_D);
+#elif defined(STM32F4)
+	HAL_PWR_EnableBkUpAccess();
+	SOUL_STATUS status = (SOUL_STATUS)HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR1);
+	HAL_PWR_DisableBkUpAccess();
 #endif
 
+	set_last_error(status);
+}
+
+void system_post_load(void)
+{
+#if SYSTEM_BEDUG
+	printTagLog(SYSTEM_TAG, "System postload");
+#endif
+	extern RTC_HandleTypeDef hrtc;
+	extern ADC_HandleTypeDef hadc1;
+
+	SystemInfo();
+
+	HAL_PWR_EnableBkUpAccess();
+	HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR1, 0);
+	HAL_PWR_DisableBkUpAccess();
+
+#if SYSTEM_BEDUG
+	if (get_last_error()) {
+		printTagLog(SYSTEM_TAG, "Last reload error: %s", get_status_name(get_last_error()));
+	}
+#endif
+
+
+#ifdef STM32F1
+	HAL_ADCEx_Calibration_Start(&hadc1);
+#endif
+	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)SYSTEM_ADC_VOLTAGE, SYSTEM_ADC_VOLTAGE_COUNT);
+
+	const uint32_t delay_ms = 10000;
+	util_old_timer_t timer = {0};
+	bool need_error_timer = is_status(SYS_TICK_FAULT);
+	if (need_error_timer) {
+		_system_error_timer_start(delay_ms);
+	} else {
+		util_old_timer_start(&timer, delay_ms);
+	}
+	while (1) {
+		uint32_t voltage = get_system_power();
+		if (STM_MIN_VOLTAGEx10 <= voltage && voltage <= STM_MAX_VOLTAGEx10) {
+			break;
+		}
+
+		if (is_status(SYS_TICK_FAULT) && !_system_error_timer_wait()) {
+			set_error(SYS_TICK_ERROR);
+			break;
+		} else if (!util_old_timer_wait(&timer)) {
+			set_error(SYS_TICK_ERROR);
+			break;
+		}
+	}
+	if (need_error_timer) {
+		_system_error_timer_disable();
+	}
+
+	if (is_error(SYS_TICK_ERROR) || is_error(POWER_ERROR)) {
+		system_error_handler(
+			(get_first_error() == INTERNAL_ERROR) ?
+				LOAD_ERROR :
+				(SOUL_STATUS)get_first_error()
+		);
+	}
+
+#if SYSTEM_BEDUG
+	printTagLog(SYSTEM_TAG, "System loaded");
+#endif
+}
+
+void system_tick()
+{
+#ifdef DEBUG
+	static unsigned kFLOPScounter = 0;
+	static util_old_timer_t kFLOPSTimer = {0,(10 * SECOND_MS)};
+#endif
+	static util_old_timer_t timer = {0,0};
+	static unsigned index = 0;
+
+#ifdef DEBUG
+	kFLOPScounter++;
+	if (!util_old_timer_wait(&kFLOPSTimer)) {
+		printTagLog(
+			SYSTEM_TAG,
+			"kFLOPS: %lu.%lu",
+			kFLOPScounter / (10 * SECOND_MS),
+			(kFLOPScounter / SECOND_MS) % 10
+		);
+		kFLOPScounter = 0;
+		util_old_timer_start(&kFLOPSTimer, (10 * SECOND_MS));
+	}
+#endif
+
+#if defined(DEBUG) || defined(GBEDUG_FORCE)
+	if (has_new_error_data()) {
+		show_errors();
+	}
+#endif
+
+	if (!is_error(STACK_ERROR) &&
+		!is_error(SYS_TICK_ERROR)
+	) {
+		set_status(SYSTEM_HARDWARE_READY);
+	} else {
+		reset_status(SYSTEM_HARDWARE_READY);
+	}
+
+	if (!is_status(SYS_TICK_FAULT) && util_old_timer_wait(&timer)) {
+		return;
+	}
+	util_old_timer_start(&timer, 50);
+
+	if (!is_status(SYSTEM_HARDWARE_READY)) {
+		reset_status(SYSTEM_SOFTWARE_READY);
+	}
+
+	if (index >= __arr_len(watchdogs)) {
+		index = 0;
+	}
+
+	if (!is_status(SYSTEM_HARDWARE_READY) &&
+		watchdogs[index].type == SOFTWARE_WATCHDOG
+	) {
+		index = 0;
+	}
+
+	if (is_status(SYS_TICK_FAULT) || !util_old_timer_wait(&watchdogs[index].timer)) {
+		util_old_timer_start(&watchdogs[index].timer, watchdogs[index].delay_ms);
+		watchdogs[index].action();
+	}
+
+	index++;
+}
+
+bool is_system_ready()
+{
+	return !(has_errors() || is_status(SYSTEM_SAFETY_MODE) || !is_status(SYSTEM_HARDWARE_READY) || !is_status(SYSTEM_SOFTWARE_READY));
+}
+
+void system_error_handler(SOUL_STATUS error)
+{
+	extern RTC_HandleTypeDef hrtc;
+
+	static bool called = false;
+	if (called) {
+		return;
+	}
+	called = true;
+
+	set_error(error);
+
+	if (!has_errors()) {
+		error = INTERNAL_ERROR;
+	}
+
+#if SYSTEM_BEDUG
+	printTagLog(SYSTEM_TAG, "system_error_handler called error=%s", get_status_name(error));
+#endif
+
+	if (is_error(SYS_TICK_ERROR) && !system_hsi_initialized) {
+		system_clock_hsi_config();
+	}
+
+	bool rtc_initialized = true;
+	if (!hrtc.Instance) {
+		hrtc.Instance = RTC;
+		hrtc.Init.AsynchPrediv = RTC_AUTO_1_SECOND;
+		hrtc.Init.OutPut = RTC_OUTPUTSOURCE_ALARM;
+		if (HAL_RTC_Init(&hrtc) != HAL_OK) {
+			rtc_initialized = false;
+		}
+	}
+
+	if (rtc_initialized) {
+		HAL_PWR_EnableBkUpAccess();
+		HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR1, error);
+		HAL_PWR_DisableBkUpAccess();
+	}
+
+	const uint32_t delay_ms = 10000;
+	util_old_timer_t timer = {0};
+	bool need_error_timer = is_status(SYS_TICK_FAULT);
+	if (need_error_timer) {
+		_system_error_timer_start(delay_ms);
+	} else {
+		util_old_timer_start(&timer, delay_ms);
+	}
+	while(1) {
+		system_error_loop();
+
+		system_tick();
+
+		if (is_status(SYS_TICK_FAULT) && !_system_error_timer_wait()) {
+			set_error(POWER_ERROR);
+			break;
+		} else if (!util_old_timer_wait(&timer)) {
+			set_error(POWER_ERROR);
+			break;
+		}
+	}
+	if (need_error_timer) {
+		_system_error_timer_disable();
+	}
+
+#if SYSTEM_BEDUG
+	_system_error_timer_start(100);
+	printTagLog(SYSTEM_TAG, "system reset");
+	while(_system_error_timer_wait());
+	_system_error_timer_disable();
+#endif
+
+	NVIC_SystemReset();
+}
+
+uint32_t get_system_power(void)
+{
+	if (!SYSTEM_ADC_VOLTAGE[0]) {
+		return 0;
+	}
+	return (STM_ADC_MAX * STM_REF_VOLTAGEx10) / SYSTEM_ADC_VOLTAGE[0];
+}
 
 void system_clock_hsi_config(void)
 {
@@ -108,404 +392,6 @@ void system_clock_hsi_config(void)
 	system_hsi_initialized = true;
 }
 
-void system_rtc_test(void)
-{
-#ifndef NO_SYSTEM_RTC_TEST
-#   ifdef DEBUG
-	static const char TEST_TAG[] = "TEST";
-	gprint("\n\n\n");
-	printTagLog(TEST_TAG, "RTC testing in progress...");
-#   endif
-
-	clock_date_t readDate  ={0};
-	clock_time_t readTime = {0};
-
-#   if SYSTEM_BEDUG
-	printPretty("Get date test: ");
-#   endif
-	if (!get_clock_rtc_date(&readDate)) {
-#   if SYSTEM_BEDUG
-		gprint("   error\n");
-#   endif
-		system_error_handler(RTC_ERROR, NULL);
-	}
-#   if SYSTEM_BEDUG
-	gprint("   OK\n");
-	printPretty("Get time test: ");
-#   endif
-	if (!get_clock_rtc_time(&readTime)) {
-#   if SYSTEM_BEDUG
-		gprint("   error\n");
-#   endif
-		system_error_handler(RTC_ERROR, NULL);
-	}
-#   if SYSTEM_BEDUG
-	gprint("   OK\n");
-	printPretty("Save date test: ");
-#   endif
-	if (!save_clock_date(&readDate)) {
-#   if SYSTEM_BEDUG
-		gprint("  error\n");
-#   endif
-		system_error_handler(RTC_ERROR, NULL);
-	}
-#   if SYSTEM_BEDUG
-	gprint("  OK\n");
-	printPretty("Save time test: ");
-#   endif
-	if (!save_clock_time(&readTime)) {
-#   if SYSTEM_BEDUG
-		gprint("  error\n");
-#   endif
-		system_error_handler(RTC_ERROR, NULL);
-	}
-#   if SYSTEM_BEDUG
-	gprint("  OK\n");
-#   endif
-
-
-	clock_date_t checkDate  ={0};
-	clock_time_t checkTime = {0};
-#   if SYSTEM_BEDUG
-	printPretty("Check date test: ");
-#   endif
-	if (!get_clock_rtc_date(&checkDate)) {
-#   if SYSTEM_BEDUG
-		gprint(" error\n");
-#   endif
-		system_error_handler(RTC_ERROR, NULL);
-	}
-	if (memcmp((void*)&readDate, (void*)&checkDate, sizeof(readDate))) {
-#   if SYSTEM_BEDUG
-		gprint(" error\n");
-#   endif
-		system_error_handler(RTC_ERROR, NULL);
-	}
-#   if SYSTEM_BEDUG
-	gprint(" OK\n");
-	printPretty("Check time test: ");
-#   endif
-	if (!get_clock_rtc_time(&checkTime)) {
-#   if SYSTEM_BEDUG
-		gprint(" error\n");
-#   endif
-		system_error_handler(RTC_ERROR, NULL);
-	}
-	if (!IS_SAME_TIME(readTime, checkTime)) {
-#   if SYSTEM_BEDUG
-		gprint(" error\n");
-#   endif
-		system_error_handler(RTC_ERROR, NULL);
-	}
-#   if SYSTEM_BEDUG
-	gprint(" OK\n");
-#   endif
-
-
-#   if SYSTEM_BEDUG
-	printPretty("Weekday test\n");
-#   endif
-	const clock_date_t dates[] = {
-		{RTC_WEEKDAY_SATURDAY,  01, 01, 00},
-		{RTC_WEEKDAY_SUNDAY,    01, 02, 00},
-		{RTC_WEEKDAY_SATURDAY,  04, 27, 24},
-		{RTC_WEEKDAY_SUNDAY,    04, 28, 24},
-		{RTC_WEEKDAY_MONDAY,    04, 29, 24},
-		{RTC_WEEKDAY_TUESDAY,   04, 30, 24},
-		{RTC_WEEKDAY_WEDNESDAY, 05, 01, 24},
-		{RTC_WEEKDAY_THURSDAY,  05, 02, 24},
-		{RTC_WEEKDAY_FRIDAY,    05, 03, 24},
-	};
-#   if defined(STM32F1)
-	const clock_time_t times[] = {
-		{00, 00, 00},
-		{00, 00, 00},
-		{03, 24, 49},
-		{04, 14, 24},
-		{03, 27, 01},
-		{23, 01, 40},
-		{03, 01, 40},
-		{04, 26, 12},
-		{03, 52, 35},
-	};
-#   elif defined(STM32F4)
-	const RTC_TimeTypeDef times[] = {
-		{00, 00, 00, 0, 0, 0, 0, 0},
-		{00, 00, 00, 0, 0, 0, 0, 0},
-		{03, 24, 49, 0, 0, 0, 0, 0},
-		{04, 14, 24, 0, 0, 0, 0, 0},
-		{03, 27, 01, 0, 0, 0, 0, 0},
-		{23, 01, 40, 0, 0, 0, 0, 0},
-		{03, 01, 40, 0, 0, 0, 0, 0},
-		{04, 26, 12, 0, 0, 0, 0, 0},
-		{03, 52, 35, 0, 0, 0, 0, 0},
-	};
-#   endif
-	const uint32_t seconds[] = {
-		0,
-		86400,
-		767503489,
-		767592864,
-		767676421,
-		767833300,
-		767847700,
-		767939172,
-		768023555,
-	};
-
-	for (unsigned i = 0; i < __arr_len(seconds); i++) {
-#   if SYSTEM_BEDUG
-		printPretty("[%02u]: ", i);
-#   endif
-
-		clock_date_t tmpDate = {0};
-		clock_time_t tmpTime = {0};
-		get_clock_seconds_to_datetime(seconds[i], &tmpDate, &tmpTime);
-		if (memcmp((void*)&tmpDate, (void*)&dates[i], sizeof(tmpDate))) {
-#   if SYSTEM_BEDUG
-			gprint("            error\n");
-#   endif
-			system_error_handler(RTC_ERROR, NULL);
-		}
-		if (!IS_SAME_TIME(tmpTime, times[i])) {
-#   if SYSTEM_BEDUG
-			gprint("            error\n");
-#   endif
-			system_error_handler(RTC_ERROR, NULL);
-		}
-
-		uint32_t tmpSeconds = get_clock_datetime_to_seconds(&dates[i], &times[i]);
-		if (tmpSeconds != seconds[i]) {
-#   if SYSTEM_BEDUG
-			gprint("            error\n");
-#   endif
-			system_error_handler(RTC_ERROR, NULL);
-		}
-
-#   if SYSTEM_BEDUG
-		gprint("            OK\n");
-#   endif
-	}
-
-
-#   if SYSTEM_BEDUG
-	printTagLog(TEST_TAG, "RTC testing done");
-#   endif
-
-#endif
-}
-
-void system_pre_load(void)
-{
-	if (!MCUcheck()) {
-		set_error(MCU_ERROR);
-		system_error_handler(get_first_error(), NULL);
-		while(1) {}
-	}
-
-	__set_bit(RCC->CR, RCC_CR_HSEON_Pos);
-
-	unsigned counter = 0;
-	while (1) {
-		if (__get_bit(RCC->CR, RCC_CR_HSERDY_Pos)) {
-			__reset_bit(RCC->CR, RCC_CR_HSEON_Pos);
-			break;
-		}
-
-		if (counter > 0x100) {
-			set_status(RCC_FAULT);
-			set_error(RCC_ERROR);
-			break;
-		}
-
-		counter++;
-	}
-
-#ifdef STM32F1
-	uint32_t backupregister = (uint32_t)BKP_BASE;
-	backupregister += (RTC_BKP_DR1 * 4U);
-	SOUL_STATUS status = (SOUL_STATUS)((*(__IO uint32_t *)(backupregister)) & BKP_DR1_D);
-#elif defined(STM32F4)
-	HAL_PWR_EnableBkUpAccess();
-	SOUL_STATUS status = (SOUL_STATUS)HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR1);
-	HAL_PWR_DisableBkUpAccess();
-#endif
-
-	set_last_error(status);
-
-    if (status == MEMORY_ERROR) {
-     	set_error(MEMORY_ERROR);
-    } else if (status == STACK_ERROR) {
-    	set_error(STACK_ERROR);
-    } else if (status == SETTINGS_LOAD_ERROR) {
-    	set_error(SETTINGS_LOAD_ERROR);
-    }
-}
-
-void system_post_load(void)
-{
-	extern RTC_HandleTypeDef hrtc;
-	extern ADC_HandleTypeDef hadc1;
-
-	HAL_PWR_EnableBkUpAccess();
-	HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR1, 0);
-	HAL_PWR_DisableBkUpAccess();
-
-#if SYSTEM_BEDUG
-	if (get_last_error()) {
-		printTagLog(SYSTEM_TAG, "Last reload error: %u", get_last_error());
-	}
-#endif
-
-
-#ifdef STM32F1
-	HAL_ADCEx_Calibration_Start(&hadc1);
-#endif
-	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)SYSTEM_ADC_VOLTAGE, 3);
-	uint64_t counter = 0;
-	uint64_t count_max = HAL_RCC_GetHCLKFreq() * 10;
-	util_old_timer_t timer = {0};
-	util_old_timer_start(&timer, 10000);
-	while (1) {
-		uint32_t voltage = get_system_power();
-		if (STM_MIN_VOLTAGEx10 <= voltage && voltage <= STM_MAX_VOLTAGEx10) {
-			break;
-		}
-
-		if (is_error(RCC_ERROR) && counter > count_max) {
-			set_error(POWER_ERROR);
-			break;
-		} else if (!util_old_timer_wait(&timer)) {
-			set_error(POWER_ERROR);
-			break;
-		}
-
-		counter++;
-	}
-
-	if (is_error(RCC_ERROR) || is_error(POWER_ERROR)) {
-		system_error_handler(
-			(get_first_error() == INTERNAL_ERROR) ?
-				LOAD_ERROR :
-				(SOUL_STATUS)get_first_error(),
-			NULL
-		);
-	}
-}
-
-void system_error_handler(SOUL_STATUS error, void (*error_loop) (void))
-{
-	extern RTC_HandleTypeDef hrtc;
-
-	static bool called = false;
-	if (called) {
-		return;
-	}
-	called = true;
-
-	set_error(error);
-
-	if (!has_errors()) {
-		error = INTERNAL_ERROR;
-	}
-
-#if SYSTEM_BEDUG
-	printTagLog(SYSTEM_TAG, "system_error_handler called error=%u", error);
-#endif
-
-	if (is_error(RCC_ERROR) && !system_hsi_initialized) {
-		system_clock_hsi_config();
-	}
-
-	bool rtc_initialized = true;
-	if (!hrtc.Instance) {
-		hrtc.Instance = RTC;
-		hrtc.Init.AsynchPrediv = RTC_AUTO_1_SECOND;
-		hrtc.Init.OutPut = RTC_OUTPUTSOURCE_ALARM;
-		if (HAL_RTC_Init(&hrtc) != HAL_OK) {
-			rtc_initialized = false;
-		}
-	}
-
-	/* Custom events begin */
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-	__HAL_RCC_GPIOA_CLK_ENABLE();
-	__HAL_RCC_GPIOB_CLK_ENABLE();
-
-	GPIO_InitStruct.Pin = RED_LED_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-	GPIO_InitStruct.Pin = LAMP_FET_Pin|GREEN_LED_Pin|MOT_FET_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-	HAL_GPIO_WritePin(MOT_FET_GPIO_Port, MOT_FET_Pin, GPIO_PIN_RESET);
-
-	HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(LAMP_FET_GPIO_Port, LAMP_FET_Pin, GPIO_PIN_SET);
-	util_old_timer_t led_timer = {0};
-	/* Custom events end */
-
-	if (rtc_initialized) {
-		HAL_PWR_EnableBkUpAccess();
-		HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR1, error);
-		HAL_PWR_DisableBkUpAccess();
-	}
-
-	uint64_t counter = 0;
-	uint64_t count_max = HAL_RCC_GetHCLKFreq() * 10;
-	util_old_timer_t timer = {0};
-	util_old_timer_start(&timer, 10000);
-	while(1) {
-		if (!is_error(RCC_ERROR) && error_loop) {
-			error_loop();
-		}
-
-		/* Custom events begin */
-		if (!util_old_timer_wait(&led_timer)) {
-			util_old_timer_start(&led_timer, 300);
-			HAL_GPIO_TogglePin(LAMP_FET_GPIO_Port, LAMP_FET_Pin);
-			HAL_GPIO_TogglePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
-			HAL_GPIO_TogglePin(RED_LED_GPIO_Port, RED_LED_Pin);
-		}
-		/* Custom events end */
-
-
-		if (is_error(RCC_ERROR) && counter > count_max) {
-			set_error(POWER_ERROR);
-			break;
-		} else if (!util_old_timer_wait(&timer)) {
-			set_error(POWER_ERROR);
-			break;
-		}
-
-		counter++;
-	}
-
-#if SYSTEM_BEDUG
-	printTagLog(SYSTEM_TAG, "system reset");
-	counter = 100;
-	while(counter--);
-#endif
-
-	NVIC_SystemReset();
-}
-
-uint32_t get_system_power(void)
-{
-	if (!SYSTEM_ADC_VOLTAGE[0]) {
-		return 0;
-	}
-	return (STM_ADC_MAX * STM_REF_VOLTAGEx10) / SYSTEM_ADC_VOLTAGE[0];
-}
-
 void system_reset_i2c_errata(void)
 {
 #ifndef NO_SYSTEM_I2C_RESET
@@ -564,7 +450,7 @@ void system_reset_i2c_errata(void)
 		util_old_timer_start(&timer, TIMEOUT_MS);
 		while(reseter[i].stat != HAL_GPIO_ReadPin(I2C_PORT, reseter[i].pin)) {
 			if (!util_old_timer_wait(&timer)) {
-				system_error_handler(I2C_ERROR, NULL);
+				system_error_handler(I2C_ERROR);
 			}
 			asm("nop");
 		}
@@ -604,4 +490,162 @@ char* get_system_serial_str(void)
 	sprintf(str_uid, "%04X%04X%08lX%08lX", *idBase0, *idBase1, *idBase2, *idBase3);
 
 	return str_uid;
+}
+
+__attribute__((weak)) void system_error_loop(void) {}
+
+void system_sys_tick_reanimation(void)
+{
+	extern void SystemClock_Config(void);
+
+	__disable_irq();
+
+	set_error(SYS_TICK_FAULT);
+	set_error(SYS_TICK_ERROR);
+
+	RCC->CIR |= RCC_CIR_CSSC;
+
+	_system_error_timer_start(SECOND_MS);
+	while (_system_error_timer_wait());
+	_system_error_timer_disable();
+
+	RCC->CR |= RCC_CR_HSEON;
+	_system_error_timer_start(SECOND_MS);
+	while (_system_error_timer_wait()) {
+		if (RCC->CR & RCC_CR_HSERDY) {
+			reset_error(SYS_TICK_FAULT);
+			reset_error(SYS_TICK_ERROR);
+			break;
+		}
+	}
+	_system_error_timer_disable();
+
+
+	if (is_error(SYS_TICK_ERROR)) {
+		system_clock_hsi_config();
+		reset_error(SYS_TICK_ERROR);
+	} else {
+		RCC_OscInitTypeDef RCC_OscInitStruct   = {0};
+		RCC_ClkInitTypeDef RCC_ClkInitStruct   = {0};
+		RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
+
+		RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
+		RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+		RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
+		RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+		RCC_OscInitStruct.LSIState = RCC_LSI_ON;
+		RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+		RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+		RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
+		if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
+			set_error(SYS_TICK_ERROR);
+			return;
+		}
+
+		RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+							  |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+		RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+		RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+		RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+		RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+
+		if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) {
+			set_error(SYS_TICK_ERROR);
+			return;
+		}
+		PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_RTC|RCC_PERIPHCLK_ADC;
+		PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
+		PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV6;
+		if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK) {
+			set_error(SYS_TICK_ERROR);
+			return;
+		}
+
+		HAL_RCC_EnableCSS();
+	}
+	reset_error(NON_MASKABLE_INTERRUPT);
+
+
+#if defined(DEBUG) || defined(GBEDUG_FORCE)
+	if (is_status(SYS_TICK_FAULT)) {
+		printTagLog(SYSTEM_TAG, "Critical external RCC failure");
+		printTagLog(SYSTEM_TAG, "The internal RCC has been started");
+	} else {
+		printTagLog(SYSTEM_TAG, "Critical external RCC failure");
+		printTagLog(SYSTEM_TAG, "The external RCC has been restarted");
+	}
+#endif
+
+	__enable_irq();
+}
+
+uint16_t get_system_adc(unsigned index)
+{
+#if SYSTEM_ADC_VOLTAGE_COUNT <= 1
+	return 0;
+#else
+	if (index + 1 >= SYSTEM_ADC_VOLTAGE_COUNT) {
+		return 0;
+	}
+	return SYSTEM_ADC_VOLTAGE[index+1];
+#endif
+}
+
+void _system_start_ram_fill(void)
+{
+	extern unsigned _ebss;
+	volatile unsigned *top, *start;
+	__asm__ volatile ("mov %[top], sp" : [top] "=r" (top) : : );
+	start = &_ebss;
+	while (start < top) {
+		*(start++) = SYSTEM_CANARY_WORD;
+	}
+}
+
+
+typedef struct _error_timer_t {
+	TIM_TypeDef tim;
+	bool        enabled;
+	uint32_t    delay_ms;
+} error_timer_t;
+
+static error_timer_t error_timer = {0};
+
+void _system_error_timer_start(uint32_t delay_ms)
+{
+	memset(&error_timer, 0, sizeof(error_timer));
+	error_timer.enabled = READ_BIT(RCC->APB1ENR, RCC_APB1ENR_TIM4EN);
+	if (error_timer.enabled) {
+		memcpy(&error_timer.tim, TIM1, sizeof(error_timer.tim));
+	}
+
+	__TIM1_CLK_ENABLE();
+	unsigned count_multiplier = 10;
+	unsigned count_cnt = 1 * count_multiplier * delay_ms;
+	unsigned presc = HAL_RCC_GetSysClockFreq() / (count_multiplier * delay_ms);
+	TIM1->SR = 0;
+	TIM1->PSC = presc - 1;
+	TIM1->ARR = count_cnt - 1;
+	TIM1->CNT = 0;
+	TIM1->CR1 &= ~(TIM_CR1_DIR);
+
+	TIM1->CR1 |= TIM_CR1_CEN;
+}
+
+bool _system_error_timer_wait(void)
+{
+	return !(TIM1->SR & TIM_SR_CC1IF);
+}
+
+void _system_error_timer_disable(void)
+{
+	TIM1->SR &= ~(TIM_SR_UIF | TIM_SR_CC1IF);
+	TIM1->CNT = 0;
+
+	if (error_timer.enabled) {
+		memcpy(TIM1, &error_timer.tim, sizeof(error_timer.tim));
+	} else {
+		TIM1->CR1 &= ~(TIM_CR1_CEN);
+		__TIM1_CLK_DISABLE();
+	}
 }

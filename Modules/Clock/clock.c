@@ -327,6 +327,20 @@ bool set_clock_ram(const uint8_t idx, uint8_t data)
 	return DS1307_SetRegByte(DS1307_REG_RAM + idx, data) == DS1307_OK;
 }
 
+bool is_same_date(const clock_date_t* date1, const clock_date_t* date2)
+{
+	return (date1->Date  == date2->Date &&
+			date1->Month == date2->Month &&
+			date1->Year  == date2->Year);
+}
+
+bool is_same_time(const clock_time_t* time1, const clock_time_t* time2)
+{\
+	return (time1->Hours   == time2->Hours &&
+			time1->Minutes == time2->Minutes &&
+			time1->Seconds == time2->Seconds);
+}
+
 uint8_t _get_days_in_month(uint16_t year, Months month)
 {
 	switch (month) {

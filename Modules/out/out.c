@@ -18,7 +18,7 @@ static const util_port_pin_t outs[SETTINGS_OUTPUTS_CNT] = {
 
 void out_tick()
 {
-	if (has_errors() || is_status(LOADING) || !is_status(WORKING)) {
+	if (!is_system_ready()) {
 		for (unsigned i = 0; i < __arr_len(outs); i++) {
 			HAL_GPIO_WritePin(outs[i].port, outs[i].pin, GPIO_PIN_RESET);
 		}

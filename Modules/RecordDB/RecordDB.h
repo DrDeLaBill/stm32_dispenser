@@ -9,7 +9,7 @@
 
 
 #ifdef DEBUG
-#   define RECORD_BEDUG (1)
+#   define RECORD_BEDUG (0)
 #endif
 
 

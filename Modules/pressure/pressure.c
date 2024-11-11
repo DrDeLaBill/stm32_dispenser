@@ -77,6 +77,6 @@ uint16_t get_press()
 
 uint16_t _pressure_get_adc_value()
 {
-	return SYSTEM_ADC_VOLTAGE[2];
+	return get_system_adc(1);
 }
 

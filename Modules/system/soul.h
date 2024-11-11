@@ -19,9 +19,11 @@ typedef enum _SOUK_STATUS {
 	/* Device statuses start */
 	STATUSES_START = 0,
 
-	LOADING,
-	WORKING,
-	RCC_FAULT,
+	SYSTEM_HARDWARE_READY,
+	SYSTEM_SOFTWARE_READY,
+	SYSTEM_SAFETY_MODE,
+	SYS_TICK_FAULT,
+	MEMORY_INITIALIZED,
 	MEMORY_READ_FAULT,
 	MEMORY_WRITE_FAULT,
 	NEED_MEASURE,
@@ -73,12 +75,11 @@ typedef enum _SOUK_STATUS {
 	RESERVED_ERROR_15,
 
 	MCU_ERROR,
-	RCC_ERROR,
+	SYS_TICK_ERROR,
 	RTC_ERROR,
 	POWER_ERROR,
 	EXPECTED_MEMORY_ERROR,
 	MEMORY_ERROR,
-	MEMORY_INIT_ERROR,
 	STACK_ERROR,
 	RAM_ERROR,
 	SD_CARD_ERROR,
@@ -110,12 +111,15 @@ typedef enum _SOUK_STATUS {
 
 
 typedef struct _soul_t {
-	unsigned last_err;
+#if defined(DEBUG) || defined(GBEDUG_FORCE)
+	bool has_new_error_data;
+#endif
+	SOUL_STATUS last_err;
 	uint8_t statuses[__div_up(SOUL_STATUSES_END - 1, BITS_IN_BYTE)];
 } soul_t;
 
 
-unsigned get_last_error();
+SOUL_STATUS get_last_error();
 void set_last_error(SOUL_STATUS error);
 
 bool has_errors();
@@ -123,11 +127,17 @@ bool has_errors();
 bool is_error(SOUL_STATUS error);
 void set_error(SOUL_STATUS error);
 void reset_error(SOUL_STATUS error);
-unsigned get_first_error();
+SOUL_STATUS get_first_error();
 
 bool is_status(SOUL_STATUS status);
 void set_status(SOUL_STATUS status);
 void reset_status(SOUL_STATUS status);
+
+char* get_status_name(SOUL_STATUS status);
+#if defined(DEBUG) || defined(GBEDUG_FORCE) // TODO: add FAULTS to errors
+bool has_new_error_data();
+void show_errors();
+#endif
 
 
 #ifdef __cplusplus

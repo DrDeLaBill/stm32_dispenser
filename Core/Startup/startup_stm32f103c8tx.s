@@ -61,7 +61,6 @@ defined in linker script */
 Reset_Handler:
 
 /* Call the clock system initialization function.*/
-    bl  STACK_WATCHDOG_FILL_RAM
     bl  SystemInit
 
 /* Copy the data segment initializers from flash to SRAM */

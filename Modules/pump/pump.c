@@ -171,11 +171,11 @@ void pump_clear_log()
 
 void pump_show_status()
 {
-	int32_t  liquid_val = get_level();
-	uint32_t liquid_adc = get_level_adc();
-	uint16_t pressure_1 = get_press();
+    gprint("################################################\n");
 
-
+	int32_t  liquid_val      = get_level();
+	uint32_t liquid_adc      = get_level_adc();
+	uint16_t pressure_1      = get_press();
     uint32_t used_day_liquid = settings.pump_work_day_sec * settings.pump_speed / SECOND_MS;
 #if PUMP_BEDUG
     if (settings.pump_target_ml == 0) {

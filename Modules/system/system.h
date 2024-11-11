@@ -1,7 +1,8 @@
-/* Copyright © 2023 Georgy E. All rights reserved. */
+/* Copyright © 2024 Georgy E. All rights reserved. */
 
 #ifndef _SYSTEM_H_
 #define _SYSTEM_H_
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -12,32 +13,39 @@ extern "C" {
 
 #include "soul.h"
 
-//#define NO_SYSTEM_RTC_TEST
-//#define NO_SYSTEM_I2C_RESET
-
 
 #ifdef DEBUG
 #   define SYSTEM_BEDUG (1)
 #endif
 
+#define SYSTEM_CANARY_WORD ((uint32_t)0xBEDAC0DE)
 
-extern uint16_t SYSTEM_ADC_VOLTAGE[3];
-
-
-void system_clock_hsi_config(void);
-
-void system_rtc_test(void);
+#ifndef SYSTEM_ADC_VOLTAGE_COUNT
+#   define SYSTEM_ADC_VOLTAGE_COUNT (1)
+#endif
 
 void system_pre_load(void);
 void system_post_load(void);
 
-void system_error_handler(SOUL_STATUS error, void (*error_loop) (void));
+void system_tick();
+
+bool is_system_ready();
+
+void system_error_handler(SOUL_STATUS error);
 
 uint32_t get_system_power(void);
 
 void system_reset_i2c_errata(void);
 
 char* get_system_serial_str(void);
+
+void system_clock_hsi_config(void);
+
+void system_error_loop(void);
+
+void system_sys_tick_reanimation(void);
+
+uint16_t get_system_adc(unsigned index);
 
 
 #ifdef __cplusplus
