@@ -39,13 +39,16 @@ void system_reset_i2c_errata(void);
 
 char* get_system_serial_str(void);
 
-void system_clock_hsi_config(void);
-
+void system_hsi_config(void);
+void system_hse_config(void);
 void system_error_loop(void);
 
 void system_sys_tick_reanimation(void);
 
 uint16_t get_system_adc(unsigned index);
+
+bool get_system_rtc_ram(const uint8_t idx, uint8_t* data);
+bool set_system_rtc_ram(const uint8_t idx, const uint8_t data);
 
 
 #ifdef __cplusplus

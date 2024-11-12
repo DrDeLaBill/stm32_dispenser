@@ -9,8 +9,16 @@
 #include "clock.h"
 #include "hal_defs.h"
 
+#if defined(SYSTEM_DS1307_CLOCK)
+#   include "ds1307.h"
+#endif
 
-#define SYSTEM_TIMER TIM4
+#define SYSTEM_BKUP_STATUS_TYPE uint32_t
+#if defined(SYSTEM_DS1307_CLOCK)
+#   define SYSTEM_BKUP_SIZE (DS1307_REG_RAM_END - DS1307_REG_RAM - sizeof(SYSTEM_BKUP_STATUS_TYPE))
+#else
+#   define SYSTEM_BKUP_SIZE (RTC_BKP_NUMBER - RTC_BKP_DR2 - sizeof(SYSTEM_BKUP_STATUS_TYPE))
+#endif
 
 
 static void _system_start_ram_fill(void);
@@ -19,11 +27,13 @@ static bool _system_error_timer_wait(void);
 static void _system_error_timer_disable(void);
 
 
-const char SYSTEM_TAG[] = "SYS";
+static const char SYSTEM_TAG[] = "SYS";
+static const uint32_t err_delay_ms = 30 * MINUTE_MS;
 
+static bool system_hsi_initialized = false;
+static util_old_timer_t err_timer = {0};
 
 uint16_t SYSTEM_ADC_VOLTAGE[SYSTEM_ADC_VOLTAGE_COUNT] = {0};
-bool system_hsi_initialized = false;
 
 
 typedef enum _watchdog_type_t {
@@ -66,32 +76,19 @@ void system_pre_load(void)
 
 	RCC->CR |= RCC_CR_HSEON;
 
-	unsigned counter = 0;
-	while (1) {
+	_system_error_timer_start(SECOND_MS);
+	while (_system_error_timer_wait()) {
 		if (RCC->CR & RCC_CR_HSERDY) {
 			break;
 		}
-
-		if (counter > 0x100) {
-			set_status(SYS_TICK_ERROR);
-			set_error(SYS_TICK_FAULT);
-			break;
-		}
-
-		counter++;
 	}
+	if (!(RCC->CR & RCC_CR_HSERDY)) {
+		set_status(SYS_TICK_ERROR);
+		set_error(SYS_TICK_FAULT);
+	}
+	_system_error_timer_disable();
 
-#if defined(STM32F1)
-	uint32_t backupregister = (uint32_t)BKP_BASE;
-	backupregister += (RTC_BKP_DR1 * 4U);
-	SOUL_STATUS status = (SOUL_STATUS)((*(__IO uint32_t *)(backupregister)) & BKP_DR1_D);
-#elif defined(STM32F4)
-	HAL_PWR_EnableBkUpAccess();
-	SOUL_STATUS status = (SOUL_STATUS)HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR1);
-	HAL_PWR_DisableBkUpAccess();
-#endif
-
-	set_last_error(status);
+	util_old_timer_start(&err_timer, err_delay_ms);
 }
 
 void system_post_load(void)
@@ -99,21 +96,9 @@ void system_post_load(void)
 #if SYSTEM_BEDUG
 	printTagLog(SYSTEM_TAG, "System postload");
 #endif
-	extern RTC_HandleTypeDef hrtc;
 	extern ADC_HandleTypeDef hadc1;
 
 	SystemInfo();
-
-	HAL_PWR_EnableBkUpAccess();
-	HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR1, 0);
-	HAL_PWR_DisableBkUpAccess();
-
-#if SYSTEM_BEDUG
-	if (get_last_error()) {
-		printTagLog(SYSTEM_TAG, "Last reload error: %s", get_status_name(get_last_error()));
-	}
-#endif
-
 
 #ifdef STM32F1
 	HAL_ADCEx_Calibration_Start(&hadc1);
@@ -154,6 +139,24 @@ void system_post_load(void)
 		);
 	}
 
+	clock_begin();
+	SYSTEM_BKUP_STATUS_TYPE status = 0;
+	for (uint8_t i = 0; i < sizeof(status); i++) {
+		uint8_t data = 0;
+		if (!get_clock_ram(i, &data)) {
+			status = 0;
+			break;
+		}
+		((uint8_t*)&status)[i] = data;
+	}
+	set_last_error((SOUL_STATUS)status);
+	set_clock_ram(0, 0);
+#if SYSTEM_BEDUG
+	if (get_last_error()) {
+		printTagLog(SYSTEM_TAG, "Last reload error: %s", get_status_name(get_last_error()));
+	}
+#endif
+
 #if SYSTEM_BEDUG
 	printTagLog(SYSTEM_TAG, "System loaded");
 #endif
@@ -168,9 +171,19 @@ void system_tick()
 	static util_old_timer_t timer = {0,0};
 	static unsigned index = 0;
 
+	if (!util_old_timer_wait(&err_timer)) {
+		system_error_handler(
+			get_first_error() ? get_first_error() : INTERNAL_ERROR
+		);
+	}
+	if (!has_errors()) {
+		util_old_timer_start(&err_timer, err_delay_ms);
+	}
+
 #ifdef DEBUG
 	kFLOPScounter++;
 	if (!util_old_timer_wait(&kFLOPSTimer)) {
+		show_statuses();
 		printTagLog(
 			SYSTEM_TAG,
 			"kFLOPS: %lu.%lu",
@@ -230,8 +243,6 @@ bool is_system_ready()
 
 void system_error_handler(SOUL_STATUS error)
 {
-	extern RTC_HandleTypeDef hrtc;
-
 	static bool called = false;
 	if (called) {
 		return;
@@ -249,26 +260,35 @@ void system_error_handler(SOUL_STATUS error)
 #endif
 
 	if (is_error(SYS_TICK_ERROR) && !system_hsi_initialized) {
-		system_clock_hsi_config();
+		system_hsi_config();
 	}
 
-	bool rtc_initialized = true;
-	if (!hrtc.Instance) {
-		hrtc.Instance = RTC;
-		hrtc.Init.AsynchPrediv = RTC_AUTO_1_SECOND;
-		hrtc.Init.OutPut = RTC_OUTPUTSOURCE_ALARM;
-		if (HAL_RTC_Init(&hrtc) != HAL_OK) {
-			rtc_initialized = false;
+	if (!is_clock_started()) {
+#if defined(SYSTEM_DS1307_CLOCK)
+		SYSTEM_CLOCK_I2C.Instance = I2C1;
+		SYSTEM_CLOCK_I2C.Init.ClockSpeed = 100000;
+		SYSTEM_CLOCK_I2C.Init.DutyCycle = I2C_DUTYCYCLE_2;
+		SYSTEM_CLOCK_I2C.Init.OwnAddress1 = 0;
+		SYSTEM_CLOCK_I2C.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+		SYSTEM_CLOCK_I2C.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+		SYSTEM_CLOCK_I2C.Init.OwnAddress2 = 0;
+		SYSTEM_CLOCK_I2C.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+		SYSTEM_CLOCK_I2C.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+		if (HAL_I2C_Init(&SYSTEM_CLOCK_I2C) != HAL_OK) {
+			set_error(I2C_ERROR);
 		}
+#endif
+		clock_begin();
+	}
+	if (!is_clock_ready()) {
+		set_clock_ready();
 	}
 
-	if (rtc_initialized) {
-		HAL_PWR_EnableBkUpAccess();
-		HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR1, error);
-		HAL_PWR_DisableBkUpAccess();
+	if (is_clock_ready()) {
+		set_clock_ram(0, (uint32_t)error);
 	}
 
-	const uint32_t delay_ms = 10000;
+	const uint32_t delay_ms = 30 * SECOND_MS;
 	util_old_timer_t timer = {0};
 	bool need_error_timer = is_status(SYS_TICK_FAULT);
 	if (need_error_timer) {
@@ -282,10 +302,8 @@ void system_error_handler(SOUL_STATUS error)
 		system_tick();
 
 		if (is_status(SYS_TICK_FAULT) && !_system_error_timer_wait()) {
-			set_error(POWER_ERROR);
 			break;
 		} else if (!util_old_timer_wait(&timer)) {
-			set_error(POWER_ERROR);
 			break;
 		}
 	}
@@ -311,7 +329,49 @@ uint32_t get_system_power(void)
 	return (STM_ADC_MAX * STM_REF_VOLTAGEx10) / SYSTEM_ADC_VOLTAGE[0];
 }
 
-void system_clock_hsi_config(void)
+
+__attribute__((weak)) void system_hse_config(void)
+{
+	RCC_OscInitTypeDef RCC_OscInitStruct   = {0};
+	RCC_ClkInitTypeDef RCC_ClkInitStruct   = {0};
+	RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
+
+	RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
+	RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+	RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
+	RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+	RCC_OscInitStruct.LSIState = RCC_LSI_ON;
+	RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+	RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+	RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
+	if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
+		set_error(SYS_TICK_FAULT);
+		return;
+	}
+
+	RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+						  |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+	RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+	RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+	RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+	RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+
+	if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) {
+		set_error(SYS_TICK_FAULT);
+		return;
+	}
+	PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_RTC|RCC_PERIPHCLK_ADC;
+	PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
+	PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV6;
+	if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK) {
+		set_error(SYS_TICK_FAULT);
+		return;
+	}
+
+	HAL_RCC_EnableCSS();
+}
+
+__attribute__((weak)) void system_hsi_config(void)
 {
 #ifdef STM32F1
 	RCC_OscInitTypeDef RCC_OscInitStruct = {0};
@@ -326,6 +386,7 @@ void system_clock_hsi_config(void)
 	RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI_DIV2;
 	RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
 	if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
+		set_error(SYS_TICK_ERROR);
 		return;
 	}
 
@@ -337,12 +398,14 @@ void system_clock_hsi_config(void)
 	RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
 	if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK) {
+		set_error(SYS_TICK_ERROR);
 		return;
 	}
 	PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_RTC|RCC_PERIPHCLK_ADC;
 	PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
 	PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV6;
 	if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK) {
+		set_error(SYS_TICK_ERROR);
 		return;
 	}
 #elif defined(STM32F4)
@@ -370,6 +433,7 @@ void system_clock_hsi_config(void)
 	RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
 	RCC_OscInitStruct.PLL.PLLQ = 4;
 	if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
+		set_error(SYS_TICK_ERROR);
 		return;
 	}
 
@@ -383,6 +447,7 @@ void system_clock_hsi_config(void)
 	RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
 	if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) {
+		set_error(SYS_TICK_ERROR);
 		return;
 	}
 #else
@@ -392,18 +457,19 @@ void system_clock_hsi_config(void)
 	system_hsi_initialized = true;
 }
 
+__attribute__((weak)) void system_error_loop(void) {}
+
 void system_reset_i2c_errata(void)
 {
-#ifndef NO_SYSTEM_I2C_RESET
 #if SYSTEM_BEDUG
 	printTagLog(SYSTEM_TAG, "RESET I2C (ERRATA)");
 #endif
 
-	if (!CLOCK_I2C.Instance) {
+	if (!SYSTEM_I2C.Instance) {
 		return;
 	}
 
-	HAL_I2C_DeInit(&CLOCK_I2C);
+	HAL_I2C_DeInit(&SYSTEM_I2C);
 
 	GPIO_TypeDef* I2C_PORT = GPIOB;
 	uint16_t I2C_SDA_Pin = GPIO_PIN_7;
@@ -416,11 +482,13 @@ void system_reset_i2c_errata(void)
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(I2C_PORT, &GPIO_InitStruct);
 
-	hi2c1.Instance->CR1 &= (unsigned)~(0x0001);
+	SYSTEM_I2C.Instance->CR1 &= (unsigned)~(0x0001);
 
 	GPIO_InitTypeDef GPIO_InitStructure = {0};
 	GPIO_InitStructure.Mode = GPIO_MODE_OUTPUT_OD;
-//	GPIO_InitStructure.Alternate = 0;
+#ifdef STM32F4
+	GPIO_InitStructure.Alternate = 0;
+#endif
 	GPIO_InitStructure.Pull = GPIO_PULLUP;
 	GPIO_InitStructure.Speed = GPIO_SPEED_FREQ_HIGH;
 
@@ -457,7 +525,9 @@ void system_reset_i2c_errata(void)
 	}
 
 	GPIO_InitStructure.Mode = GPIO_MODE_AF_OD;
-//	GPIO_InitStructure.Alternate = GPIO_AF4_I2C1;
+#ifdef STM32F4
+	GPIO_InitStructure.Alternate = GPIO_AF4_I2C1;
+#endif
 
 	GPIO_InitStructure.Pin = I2C_SCL_Pin;
 	HAL_GPIO_Init(I2C_PORT, &GPIO_InitStructure);
@@ -465,15 +535,14 @@ void system_reset_i2c_errata(void)
 	GPIO_InitStructure.Pin = I2C_SDA_Pin;
 	HAL_GPIO_Init(I2C_PORT, &GPIO_InitStructure);
 
-	CLOCK_I2C.Instance->CR1 |= 0x8000;
+	SYSTEM_I2C.Instance->CR1 |= 0x8000;
 	asm("nop");
-	CLOCK_I2C.Instance->CR1 &= (unsigned)~0x8000;
+	SYSTEM_I2C.Instance->CR1 &= (unsigned)~0x8000;
 	asm("nop");
 
-	CLOCK_I2C.Instance->CR1 |= 0x0001;
+	SYSTEM_I2C.Instance->CR1 |= 0x0001;
 
-	HAL_I2C_Init(&CLOCK_I2C);
-#endif
+	HAL_I2C_Init(&SYSTEM_I2C);
 }
 
 char* get_system_serial_str(void)
@@ -491,8 +560,6 @@ char* get_system_serial_str(void)
 
 	return str_uid;
 }
-
-__attribute__((weak)) void system_error_loop(void) {}
 
 void system_sys_tick_reanimation(void)
 {
@@ -522,46 +589,10 @@ void system_sys_tick_reanimation(void)
 
 
 	if (is_error(SYS_TICK_ERROR)) {
-		system_clock_hsi_config();
+		system_hsi_config();
 		reset_error(SYS_TICK_ERROR);
 	} else {
-		RCC_OscInitTypeDef RCC_OscInitStruct   = {0};
-		RCC_ClkInitTypeDef RCC_ClkInitStruct   = {0};
-		RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
-
-		RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
-		RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-		RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
-		RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-		RCC_OscInitStruct.LSIState = RCC_LSI_ON;
-		RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-		RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-		RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
-		if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
-			set_error(SYS_TICK_ERROR);
-			return;
-		}
-
-		RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-							  |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-		RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-		RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-		RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
-		RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
-
-		if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) {
-			set_error(SYS_TICK_ERROR);
-			return;
-		}
-		PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_RTC|RCC_PERIPHCLK_ADC;
-		PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
-		PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV6;
-		if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK) {
-			set_error(SYS_TICK_ERROR);
-			return;
-		}
-
-		HAL_RCC_EnableCSS();
+		system_hse_config();
 	}
 	reset_error(NON_MASKABLE_INTERRUPT);
 
@@ -591,12 +622,29 @@ uint16_t get_system_adc(unsigned index)
 #endif
 }
 
+bool get_system_rtc_ram(const uint8_t idx, uint8_t* data)
+{
+	if (idx + sizeof(SYSTEM_BKUP_STATUS_TYPE) >= SYSTEM_BKUP_SIZE) {
+		return false;
+	}
+	return get_clock_ram(idx + sizeof(SYSTEM_BKUP_STATUS_TYPE), data);
+}
+
+bool set_system_rtc_ram(const uint8_t idx, const uint8_t data)
+{
+	if (idx + sizeof(SYSTEM_BKUP_STATUS_TYPE) >= SYSTEM_BKUP_SIZE) {
+		return false;
+	}
+	return set_clock_ram(idx + sizeof(SYSTEM_BKUP_STATUS_TYPE), data);
+}
+
 void _system_start_ram_fill(void)
 {
 	extern unsigned _ebss;
 	volatile unsigned *top, *start;
 	__asm__ volatile ("mov %[top], sp" : [top] "=r" (top) : : );
 	start = &_ebss;
+	start++;
 	while (start < top) {
 		*(start++) = SYSTEM_CANARY_WORD;
 	}

@@ -45,6 +45,8 @@ typedef struct _clock_time_t {
 } clock_time_t;
 
 
+void     clock_begin();
+bool     is_clock_started();
 uint16_t get_clock_year();
 uint8_t  get_clock_month();
 uint8_t  get_clock_date();
@@ -55,12 +57,12 @@ bool     save_clock_time(const clock_time_t* time);
 bool     save_clock_date(const clock_date_t* date);
 bool     get_clock_rtc_time(clock_time_t* time);
 bool     get_clock_rtc_date(clock_date_t* date);
-uint32_t get_clock_datetime_to_seconds(const clock_date_t* date, const clock_time_t* time);
-uint32_t get_clock_timestamp();
-void     get_clock_seconds_to_datetime(const uint32_t seconds, clock_date_t* date, clock_time_t* time);
+uint64_t get_clock_datetime_to_seconds(const clock_date_t* date, const clock_time_t* time);
+uint64_t get_clock_timestamp();
+void     get_clock_seconds_to_datetime(const uint64_t seconds, clock_date_t* date, clock_time_t* time);
 char*    get_clock_time_format();
-char*    get_clock_time_format_by_sec(uint32_t seconds);
-bool     set_clock_ready(bool);
+char*    get_clock_time_format_by_sec(uint64_t seconds);
+bool     set_clock_ready();
 bool     is_clock_ready();
 bool     get_clock_ram(const uint8_t idx, uint8_t* data);
 bool     set_clock_ram(const uint8_t idx, uint8_t data);

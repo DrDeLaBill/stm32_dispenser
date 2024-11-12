@@ -26,7 +26,7 @@ public:
 
     typedef struct __attribute__((packed)) _Record {
     	uint32_t id;            // Record ID
-    	uint32_t time;          // Record time
+    	uint64_t time;          // Record time
     	int32_t  level;         // Liquid level
     	uint16_t press;         // First pressure sensor
     	uint32_t pump_wok_time; // Log pump down time sec

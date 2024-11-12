@@ -22,15 +22,24 @@
 #include "RecordDB.h"
 
 
-#define SEND_DELAY_NS   (60 * SECOND_MS)
-#define CHAR_PARAM_SIZE (30)
+#define BASE_SERVER_DELAY_SEC (DAY_MS / SECOND_MS)
+#define SEND_DELAY_NS         (60 * SECOND_MS)
+#define CHAR_PARAM_SIZE       (30)
+#define ERRORS_MAX            (5)
 
+
+TYPE_PACK(
+typedef struct, _log_rtc_ram_t {
+	uint64_t log_time;
+	uint64_t base_server_time;
+} log_rtc_ram_t;
+)
 
 static bool _find_param(char** dst, const char* src, const char* param);
 static void _make_record(RecordDB& record);
 static bool _update_time(char* data);
-static void _save_time_in_rtc_ram(uint32_t time_sec);
-static void _load_time_from_rtc_ram();
+static void _save_rtc_ram_log();
+static void _load_rtc_ram_log();
 static void _clear_log();
 
 
@@ -43,6 +52,7 @@ static void init_tims_a(void);
 static void check_net_a(void);
 static void check_timeout_a(void);
 static void save_a(void);
+static void base_a(void);
 static void send_a(void);
 static void parse_a(void);
 static void send_timeout_a(void);
@@ -79,6 +89,7 @@ FSM_GC_CREATE(log_fsm);
 FSM_GC_CREATE_EVENT(success_e, 0);
 FSM_GC_CREATE_EVENT(save_e,    0);
 FSM_GC_CREATE_EVENT(send_e,    0);
+FSM_GC_CREATE_EVENT(base_e,    0);
 FSM_GC_CREATE_EVENT(timeout_e, 0);
 FSM_GC_CREATE_EVENT(error_e,   1);
 
@@ -92,6 +103,7 @@ FSM_GC_CREATE_TABLE(
 	{&init_s,      &success_e, &idle_s,      init_tims_a},
 
 	{&idle_s,      &save_e,    &idle_s,      save_a},
+	{&idle_s,      &base_e,    &idle_s,      base_a},
 	{&idle_s,      &send_e,    &check_net_s, check_net_a},
 
 	{&check_net_s, &success_e, &send_s,      send_a},
@@ -106,11 +118,14 @@ FSM_GC_CREATE_TABLE(
 static util_old_timer_t timer = {};
 static util_old_timer_t log_timer = {};
 static util_old_timer_t send_timer = {};
+static util_old_timer_t base_server_timer = {};
 
+static bool first_request     = true;
 static bool new_record_loaded = false;
-static bool first_request = true;
-static uint32_t sended_id = 0;
+static uint32_t sended_id     = 0;
 static RecordDB record(0);
+static log_rtc_ram_t log_rtc_ram = {};
+static unsigned base_server_erros = 0;
 
 
 void log_init()
@@ -232,50 +247,59 @@ bool _update_time(char* data)
 	time.Seconds = (uint8_t)atoi(data_ptr);
 
 	if(save_clock_time(&time)) {
-		set_clock_ready(true);
+		set_clock_ready();
 		return true;
 	}
 
 	return false;
 }
 
-void _save_time_in_rtc_ram(uint32_t time_sec)
+void _save_rtc_ram_log()
 {
-	for (uint8_t i = sizeof(time_sec); i > 0; i--) {
-		uint8_t byte = (uint8_t)(time_sec & 0xFF);
-		if (!set_clock_ram(i - 1, byte)) {
+	for (uint8_t i = 0; i < sizeof(log_rtc_ram); i++) {
+		if (!set_system_rtc_ram(i, ((uint8_t*)&log_rtc_ram)[i])) {
 			return;
 		}
-		time_sec >>= BITS_IN_BYTE;
 	}
+	_load_rtc_ram_log();
 }
 
-void _load_time_from_rtc_ram()
+void _load_rtc_ram_log()
 {
-	uint32_t sleep_sec = settings.sleep_ms / SECOND_MS;
-	uint32_t rtc_ram_last_sec = 0;
-	uint8_t  byte = 0;
-	for (uint8_t i = 0; i < sizeof(rtc_ram_last_sec); i++) {
-		rtc_ram_last_sec <<= BITS_IN_BYTE;
-		bool res = get_clock_ram(i, &byte);
-		if (res) {
-			rtc_ram_last_sec |= ((uint32_t)byte & 0xFF);
+	uint64_t sleep_sec = settings.sleep_ms / SECOND_MS;
+	uint8_t byte = 0;
+	for (uint8_t i = 0; i < sizeof(log_rtc_ram); i++) {
+		if (get_system_rtc_ram(i, &byte)) {
+			((uint8_t*)&log_rtc_ram)[i] = byte;
 		} else {
-			rtc_ram_last_sec = 0;
+			memset(&log_rtc_ram, 0xFF, sizeof(log_rtc_ram));
 			break;
 		}
 	}
-	uint32_t timestamp = get_clock_timestamp();
-	if (rtc_ram_last_sec == 0xFFFFFFFF) {
+	uint64_t timestamp = get_clock_timestamp();
+
+	if (log_rtc_ram.log_time == 0xFFFFFFFFFFFFFFFF) {
 		sleep_sec = 1;
-	} else if (timestamp >= rtc_ram_last_sec + sleep_sec) {
+	} else if (timestamp >= log_rtc_ram.log_time + sleep_sec) {
 		sleep_sec = 1;
 	} else {
-		sleep_sec -= timestamp - rtc_ram_last_sec;
+		sleep_sec -= timestamp - log_rtc_ram.log_time;
 	}
-	util_old_timer_start(&log_timer, sleep_sec * SECOND_MS);
+	util_old_timer_start(&log_timer, (uint32_t)(sleep_sec * SECOND_MS));
+
+	sleep_sec = BASE_SERVER_DELAY_SEC;
+	if (log_rtc_ram.base_server_time == 0xFFFFFFFFFFFFFFFF) {
+		sleep_sec = 1;
+	} else if (timestamp >= log_rtc_ram.base_server_time + BASE_SERVER_DELAY_SEC) {
+		sleep_sec = 1;
+	} else {
+		sleep_sec -= timestamp - log_rtc_ram.base_server_time;
+	}
+	util_old_timer_start(&base_server_timer, (uint32_t)(sleep_sec * SECOND_MS));
+
 #if LOG_BEDUG
 	printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
+	printTagLog(TAG, "Start base_server_timer %lu ms", base_server_timer.delay);
 #endif
 }
 
@@ -307,6 +331,10 @@ void _idle_s(void)
 	if (!util_old_timer_wait(&send_timer)) {
 		fsm_gc_push_event(&log_fsm, &send_e);
 	}
+
+	if (!is_base_server() && !util_old_timer_wait(&base_server_timer)) {
+		fsm_gc_push_event(&log_fsm, &base_e);
+	}
 }
 
 void _check_net_s(void)
@@ -336,7 +364,7 @@ void init_tims_a(void)
 {
 	fsm_gc_clear(&log_fsm);
 
-	_load_time_from_rtc_ram();
+	_load_rtc_ram_log();
 
 	util_old_timer_start(&send_timer, GENERAL_TIMEOUT_MS);
 }
@@ -355,7 +383,8 @@ void save_a(void)
 		settings.pump_downtime_sec = 0;
 		set_status(NEED_SAVE_SETTINGS);
 		reset_status(NEW_RECORD_WAS_NOT_SAVED);
-		_save_time_in_rtc_ram(record.record.time);
+		log_rtc_ram.log_time = record.record.time;
+		_save_rtc_ram_log();
 		util_old_timer_start(&log_timer, settings.sleep_ms);
 #if LOG_BEDUG
 		printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
@@ -369,6 +398,11 @@ void save_a(void)
 	}
 }
 
+void base_a(void)
+{
+	set_base_server();
+}
+
 void check_timeout_a(void)
 {
 	util_old_timer_start(&send_timer, 10 * SECOND_MS);
@@ -376,8 +410,6 @@ void check_timeout_a(void)
 
 void send_a(void)
 {
-	bool is_base_server = strncmp(get_sim_url(), settings.url, strlen(settings.url));
-
 	char data[SIM_LOG_SIZE] = {};
 	snprintf(
 		data,
@@ -387,7 +419,7 @@ void send_a(void)
 		"cf_id=%lu\n",
 		get_system_serial_str(),
 		FW_VERSION,
-		is_base_server ? 0 : settings.cf_id
+		is_base_server() ? 0 : settings.cf_id
 	);
 	if (!settings.calibrated) {
 		snprintf(
@@ -395,6 +427,14 @@ void send_a(void)
 			sizeof(data) - strlen(data),
 			"adclevel=%lu\n",
 			get_level_adc()
+		);
+	}
+	if (has_errors()) {
+		snprintf(
+			data + strlen(data),
+			sizeof(data) - strlen(data),
+			"status=%s\n",
+			get_status_name(get_first_error())
 		);
 	}
 	snprintf(
@@ -424,12 +464,13 @@ void send_a(void)
 		reset_status(NEW_RECORD_WAS_NOT_SAVED);
 		recordStatus = RecordDB::RECORD_OK;
 		_make_record(record);
-		_save_time_in_rtc_ram(record.record.time);
+		log_rtc_ram.log_time = record.record.time;
+		_save_rtc_ram_log();
 		record.record.id = settings.server_log_id + 1;
 	}
 	if (// settings.calibrated &&
 		recordStatus == RecordDB::RECORD_OK &&
-		!is_base_server
+		!is_base_server()
 	) {
 		snprintf(
 			data + strlen(data),
@@ -486,6 +527,12 @@ void parse_a(void)
 
 	char* var_ptr = get_response();
 	char* data_ptr = var_ptr;
+
+	if (is_base_server()) {
+		log_rtc_ram.base_server_time = get_clock_timestamp();
+		_save_rtc_ram_log();
+		set_main_server();
+	}
 
 #if LOG_BEDUG
 	printTagLog(TAG, "response: %s", var_ptr);
@@ -567,7 +614,7 @@ void parse_a(void)
 
 	if (_find_param(&data_ptr, var_ptr, CF_SLEEP_FIELD)) {
 		set_settings_sleep(atoi(data_ptr) * SECOND_MS);
-		_load_time_from_rtc_ram();
+		_load_rtc_ram_log();
 	}
 
 	if (_find_param(&data_ptr, var_ptr, CF_SPEED_FIELD)) {
@@ -630,6 +677,15 @@ void parse_a(void)
 void send_timeout_a(void)
 {
 	fsm_gc_clear(&log_fsm);
+
+	if (is_base_server()) {
+		base_server_erros++;
+	}
+	if (base_server_erros > ERRORS_MAX) {
+		log_rtc_ram.base_server_time = get_clock_timestamp();
+		_save_rtc_ram_log();
+		set_main_server();
+	}
 
 	util_old_timer_start(&send_timer, 10 * SECOND_MS);
 }

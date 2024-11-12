@@ -62,6 +62,7 @@ typedef struct _sim_state_t {
 
 	util_old_timer_t timer;
 
+	bool     is_base_server;
 	bool     http_error;
 } sim_state_t;
 
@@ -221,6 +222,23 @@ char* get_response()
 char* get_sim_url()
 {
 	return sim_state.url;
+}
+
+bool is_base_server()
+{
+	return sim_state.is_base_server;
+}
+
+void set_base_server()
+{
+    strncpy(sim_state.url, defaultUrl, sizeof(sim_state.url));
+    sim_state.is_base_server = true;
+}
+
+void set_main_server()
+{
+    strncpy(sim_state.url, settings.url, sizeof(sim_state.url));
+    sim_state.is_base_server = false;
 }
 
 bool if_network_ready()
@@ -576,15 +594,15 @@ void _sim_change_url_s(void)
 #if SIM_MODULE_DEBUG
     printTagLog(SIM_TAG, "error - [%s]\n", strlen(sim_state.response) ? sim_state.response : "empty answer");
 #endif
-    if (strncmp(sim_state.url, defaultUrl, sizeof(sim_state.url))) {
-        strncpy(sim_state.url, defaultUrl, sizeof(sim_state.url));
+    if (sim_state.is_base_server) {
+    	set_main_server();
 #if SIM_MODULE_DEBUG
         printTagLog(SIM_TAG, "Change server url to: %s", sim_state.url);
 #endif
     } else {
-        strncpy(sim_state.url, settings.url, sizeof(sim_state.url));
+    	set_base_server();
 #if SIM_MODULE_DEBUG
-        printTagLog(SIM_TAG, "Change server url to: %s", settings.url);
+        printTagLog(SIM_TAG, "Change server url to: %s", sim_state.url);
 #endif
     }
 

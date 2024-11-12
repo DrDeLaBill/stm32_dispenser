@@ -110,16 +110,14 @@ int main(void)
 
   /* USER CODE BEGIN Init */
   if (is_error(SYS_TICK_ERROR)) {
-	  system_clock_hsi_config();
+	  system_hsi_config();
   } else {
-	  set_error(SYS_TICK_ERROR);
   /* USER CODE END Init */
 
   /* Configure the system clock */
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-	  reset_error(SYS_TICK_ERROR);
   }
 
 #ifndef DEBUG
@@ -155,8 +153,6 @@ int main(void)
 
     // Pump
     pump_init();
-	// Clock
-	DS1307_Init();
 	// Sim module
 	HAL_UART_Receive_IT(&SIM_MODULE_UART, (uint8_t*) &sim_input_chr, sizeof(char));
 	// CMD module
@@ -169,18 +165,6 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-	utl::Timer errTimer(300 * SECOND_MS);
-
-	set_error(STACK_ERROR);
-	errTimer.start();
-	while (has_errors() || !is_status(SYSTEM_HARDWARE_READY)) {
-		system_tick();
-
-		if (!errTimer.wait()) {
-			system_error_handler((SOUL_STATUS)get_first_error());
-		}
-	}
-
 	sim_begin();
 
 	log_init();
@@ -195,12 +179,13 @@ int main(void)
 	// TODO: remove start
 #ifdef DEBUG
 	util_old_timer_t tmp_timer = {};
+	util_old_timer_start(&tmp_timer, 10000);
 #endif
 	// TODO: remove end
 
 	set_status(HAS_NEW_RECORD);
+	utl::Timer errTimer(150 * SECOND_MS);
 	errTimer.start();
-	util_old_timer_start(&tmp_timer, 10000);
 	while (1)
 	{
 		// TODO: remove start
@@ -311,7 +296,12 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
-void system_error_loop()
+extern "C" void system_hse_config(void)
+{
+	SystemClock_Config();
+}
+
+extern "C" void system_error_loop()
 {
 	static bool initialized = false;
 	static util_old_timer_t led_timer = {};

@@ -17,6 +17,7 @@
 #include "main.h"
 #include "level.h"
 #include "gutils.h"
+#include "system.h"
 #include "settings.h"
 #include "pressure.h"
 
@@ -83,7 +84,11 @@ void pump_init()
 
 void pump_process()
 {
-    pump_state.state_action();
+	if (is_system_ready()) {
+		pump_state.state_action();
+	} else {
+		HAL_GPIO_WritePin(MOT_FET_GPIO_Port, MOT_FET_Pin, GPIO_PIN_RESET);
+	}
     _pump_indication_proccess();
 }
 
@@ -318,6 +323,11 @@ void _pump_fsm_state_start()
 {
 	pump_state.start_time = HAL_GetTick();
 	util_old_timer_start(&pump_state.wait_timer, pump_state.needed_work_time);
+
+	if (get_level() == LEVEL_ERROR) {
+		_pump_set_state(_pump_fsm_state_stop);
+		return;
+	}
 
 	if (!settings.pump_enabled) {
 		printTagLog(PUMP_TAG, "PUMP COUNT DOWNTIME (wait %lu ms)", pump_state.needed_work_time);

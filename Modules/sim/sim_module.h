@@ -31,6 +31,9 @@ bool has_http_response();
 bool if_network_ready();
 char* get_response();
 char* get_sim_url();
+bool is_base_server();
+void set_base_server();
+void set_main_server();
 
 
 #ifdef __cplusplus

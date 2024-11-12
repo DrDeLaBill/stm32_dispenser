@@ -271,7 +271,7 @@ extern "C" void rtc_watchdog_check()
 		{03, 52, 35, 0, 0, 0, 0, 0},
 	};
 #endif
-	const uint32_t seconds[] = {
+	const uint64_t seconds[] = {
 		0,
 		86400,
 		767503489,
@@ -306,7 +306,7 @@ extern "C" void rtc_watchdog_check()
 			return;
 		}
 
-		uint32_t tmpSeconds = get_clock_datetime_to_seconds(&dates[i], &times[i]);
+		uint64_t tmpSeconds = get_clock_datetime_to_seconds(&dates[i], &times[i]);
 		if (tmpSeconds != seconds[i]) {
 #ifdef WATCHDOG_BEDUG
 			gprint("            error\n");

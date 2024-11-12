@@ -12,6 +12,9 @@ extern "C"{
 #include "stm32f1xx_hal.h"
 
 
+#if defined(SYSTEM_DS1307_CLOCK)
+
+
 typedef enum _DS1307_STATUS {
 	DS1307_OK,
 	DS1307_ERROR
@@ -35,8 +38,7 @@ typedef enum _DS1307_STATUS {
 #define DS1307_REG_RAM_RDY_DA	0x0C
 #define DS1307_REG_RAM_RDY_CO   0x0D
 #define DS1307_REG_RAM_RDY_DE	0x0E
-#define DS1307_REG_RAM_RDY   	0x0F
-#define DS1307_REG_RAM   	    0x10
+#define DS1307_REG_RAM   	    0x0F
 #define DS1307_REG_RAM_END      0x3F
 #define DS1307_TIMEOUT		    1000
 /*----------------------------------------------------------------------------*/
@@ -83,11 +85,11 @@ DS1307_STATUS DS1307_SetMinute(uint8_t minute);
 DS1307_STATUS DS1307_SetSecond(uint8_t second);
 DS1307_STATUS DS1307_SetTimeZone(int8_t hr, uint8_t min);
 
-DS1307_STATUS DS1307_SetInitialized(uint8_t);
-DS1307_STATUS DS1307_GetInitialized(uint8_t*);
-
 uint8_t DS1307_DecodeBCD(uint8_t bin);
 uint8_t DS1307_EncodeBCD(uint8_t dec);
+
+
+#endif
 
 
 #ifdef __cplusplus

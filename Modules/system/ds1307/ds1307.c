@@ -1,11 +1,11 @@
-#include <ds1307.h>
-#include "stm32f1xx_hal.h"
+#include "ds1307.h"
 
 #include "main.h"
 #include "gutils.h"
+#include "stm32f1xx_hal.h"
 
 
-static const uint32_t BEDAC0DE = 0xBEDAC0DE;
+#if defined(SYSTEM_DS1307_CLOCK)
 
 
 /**
@@ -59,7 +59,7 @@ DS1307_STATUS DS1307_GetClockHalt(uint8_t* res) {
  */
 DS1307_STATUS DS1307_SetRegByte(uint8_t regAddr, uint8_t val) {
 	uint8_t bytes[2] = { regAddr, val };
-	return HAL_I2C_Master_Transmit(&CLOCK_I2C, DS1307_I2C_ADDR << 1, bytes, 2, DS1307_TIMEOUT) == HAL_OK ?
+	return HAL_I2C_Master_Transmit(&SYSTEM_CLOCK_I2C, DS1307_I2C_ADDR << 1, bytes, 2, DS1307_TIMEOUT) == HAL_OK ?
 			DS1307_OK : DS1307_ERROR;
 }
 
@@ -71,10 +71,10 @@ DS1307_STATUS DS1307_SetRegByte(uint8_t regAddr, uint8_t val) {
 DS1307_STATUS DS1307_GetRegByte(uint8_t regAddr, uint8_t* res) {
 	*res = 0;
 	uint8_t val = 0;
-	if (HAL_I2C_Master_Transmit(&CLOCK_I2C, DS1307_I2C_ADDR << 1, &regAddr, 1, DS1307_TIMEOUT) != HAL_OK) {
+	if (HAL_I2C_Master_Transmit(&SYSTEM_CLOCK_I2C, DS1307_I2C_ADDR << 1, &regAddr, 1, DS1307_TIMEOUT) != HAL_OK) {
 		return DS1307_ERROR;
 	}
-	if (HAL_I2C_Master_Receive(&CLOCK_I2C, DS1307_I2C_ADDR << 1, (uint8_t*)&val, 1, DS1307_TIMEOUT) != HAL_OK) {
+	if (HAL_I2C_Master_Receive(&SYSTEM_CLOCK_I2C, DS1307_I2C_ADDR << 1, (uint8_t*)&val, 1, DS1307_TIMEOUT) != HAL_OK) {
 		return DS1307_ERROR;
 	}
 	*res = val;
@@ -346,56 +346,6 @@ DS1307_STATUS DS1307_SetTimeZone(int8_t hr, uint8_t min) {
 	return DS1307_OK;
 }
 
-DS1307_STATUS DS1307_SetInitialized(uint8_t value)
-{
-	uint8_t res = 0;
-	if (DS1307_GetInitialized(&res) != DS1307_OK) {
-		return DS1307_ERROR;
-	}
-	for (uint8_t i = 0; i < sizeof(BEDAC0DE); i++) {
-		if (DS1307_SetRegByte(
-				(uint8_t)DS1307_REG_RAM_RDY_BE + i,
-				(uint8_t)((BEDAC0DE >> BITS_IN_BYTE * i) & 0xFF)
-			) != DS1307_OK
-		) {
-			return DS1307_ERROR;
-		}
-	}
-	if (DS1307_SetRegByte((uint8_t)DS1307_REG_RAM_RDY, value) != DS1307_OK) {
-		return DS1307_ERROR;
-	}
-	if (!res) {
-		for (unsigned i = DS1307_REG_RAM; i <= DS1307_REG_RAM_END; i++)  {
-			if (DS1307_SetRegByte((uint8_t)i, 0xFF) != DS1307_OK) {
-				return DS1307_ERROR;
-			}
-		}
-	}
-	return DS1307_OK;
-}
-
-DS1307_STATUS DS1307_GetInitialized(uint8_t* res)
-{
-	for (uint8_t i = 0; i < sizeof(BEDAC0DE); i++) {
-		uint8_t value = 0;
-		if (DS1307_GetRegByte(
-				(uint8_t)DS1307_REG_RAM_RDY_BE + i,
-				&value
-			) != DS1307_OK
-		) {
-			return DS1307_ERROR;
-		}
-		if (value != ((BEDAC0DE >> BITS_IN_BYTE * i) & 0xFF)) {
-			*res = 0;
-			return DS1307_OK;
-		}
-	}
-	if (DS1307_GetRegByte((uint8_t)DS1307_REG_RAM_RDY, res) != DS1307_OK) {
-		return DS1307_ERROR;
-	}
-	return DS1307_OK;
-}
-
 /**
  * @brief Decodes the raw binary value stored in registers to decimal format.
  * @param bin Binary-coded decimal value retrieved from register, 0 to 255.
@@ -413,3 +363,6 @@ uint8_t DS1307_DecodeBCD(uint8_t bin) {
 uint8_t DS1307_EncodeBCD(uint8_t dec) {
 	return (uint8_t)(dec % 10 + ((dec / 10) << 4));
 }
+
+
+#endif
