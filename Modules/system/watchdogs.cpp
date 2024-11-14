@@ -117,13 +117,12 @@ extern "C" void rtc_watchdog_check()
 {
 	static bool tested = false;
 
-	if (is_clock_ready()) {
-		set_status(DS1307_READY);
-	} else {
-		reset_status(DS1307_READY);
-	}
-
 	if (!is_status(DS1307_READY)) {
+		if (is_clock_ready()) {
+			set_status(DS1307_READY);
+		} else {
+			reset_status(DS1307_READY);
+		}
 		return;
 	}
 
@@ -236,6 +235,17 @@ extern "C" void rtc_watchdog_check()
 	printPretty("Weekday test\n");
 #endif
 	const clock_date_t dates[] = {
+#if defined(SYSTEM_DS1307_CLOCK)
+		{0, 01, 01, 00},
+		{0, 01, 02, 00},
+		{0, 04, 27, 24},
+		{0, 04, 28, 24},
+		{0, 04, 29, 24},
+		{0, 04, 30, 24},
+		{0, 05, 01, 24},
+		{0, 05, 02, 24},
+		{0, 05, 03, 24},
+#else
 		{RTC_WEEKDAY_SATURDAY,  01, 01, 00},
 		{RTC_WEEKDAY_SUNDAY,    01, 02, 00},
 		{RTC_WEEKDAY_SATURDAY,  04, 27, 24},
@@ -245,6 +255,7 @@ extern "C" void rtc_watchdog_check()
 		{RTC_WEEKDAY_WEDNESDAY, 05, 01, 24},
 		{RTC_WEEKDAY_THURSDAY,  05, 02, 24},
 		{RTC_WEEKDAY_FRIDAY,    05, 03, 24},
+#endif
 	};
 #if defined(STM32F1)
 	const clock_time_t times[] = {
@@ -291,7 +302,11 @@ extern "C" void rtc_watchdog_check()
 		clock_date_t tmpDate = {0,0,0,0};
 		clock_time_t tmpTime = {0,0,0};
 		get_clock_seconds_to_datetime(seconds[i], &tmpDate, &tmpTime);
-		if (memcmp((void*)&tmpDate, (void*)&dates[i], sizeof(tmpDate))) {
+		if (!is_same_date(&tmpDate, &dates[i])
+#if !defined(SYSTEM_DS1307_CLOCK)
+			&& tmpDate.WeekDay == dates[i].WeekDay
+#endif
+		) {
 #ifdef WATCHDOG_BEDUG
 			gprint("            error\n");
 #endif

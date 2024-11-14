@@ -23,7 +23,6 @@
 #include "dma.h"
 #include "i2c.h"
 #include "iwdg.h"
-#include "rtc.h"
 #include "spi.h"
 #include "usart.h"
 #include "gpio.h"
@@ -89,6 +88,9 @@ void SystemClock_Config(void);
 char cmd_input_chr = 0;
 char sim_input_chr = 0;
 
+unsigned rs485_cnt = 0;
+char rs485_input_chr[100] = {0};
+
 /* USER CODE END 0 */
 
 /**
@@ -130,7 +132,6 @@ int main(void)
   MX_I2C1_Init();
   MX_USART1_UART_Init();
   MX_USART3_UART_Init();
-  MX_RTC_Init();
   MX_CAN_Init();
   MX_SPI1_Init();
   MX_USART2_UART_Init();
@@ -143,20 +144,12 @@ int main(void)
 	MX_I2C1_Init();
 	MX_USART1_UART_Init();
 	MX_USART3_UART_Init();
-	MX_RTC_Init();
 	MX_CAN_Init();
 	MX_SPI1_Init();
 	MX_USART2_UART_Init();
 #endif
 
 	HAL_Delay(100);
-
-    // Pump
-    pump_init();
-	// Sim module
-	HAL_UART_Receive_IT(&SIM_MODULE_UART, (uint8_t*) &sim_input_chr, sizeof(char));
-	// CMD module
-	HAL_UART_Receive_IT(&SIM_MODULE_UART, (uint8_t*) &cmd_input_chr, sizeof(char));
 
 	gprint("\n\n\n");
 	printTagLog(MAIN_TAG, "The device is loading");
@@ -165,6 +158,12 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+	HAL_UART_Receive_IT(&SIM_MODULE_UART, (uint8_t*) &sim_input_chr, sizeof(char));
+	HAL_UART_Receive_IT(&CMD_UART, (uint8_t*) &cmd_input_chr, sizeof(char));
+	HAL_UART_Receive_IT(&RS485_UART, (uint8_t*)&rs485_input_chr[rs485_cnt++], 1);
+
+    pump_init();
+
 	sim_begin();
 
 	log_init();
@@ -179,7 +178,6 @@ int main(void)
 	// TODO: remove start
 #ifdef DEBUG
 	util_old_timer_t tmp_timer = {};
-	util_old_timer_start(&tmp_timer, 10000);
 #endif
 	// TODO: remove end
 
@@ -190,14 +188,19 @@ int main(void)
 	{
 		// TODO: remove start
 #ifdef DEBUG
-		static unsigned counter = 0;
 		if (!util_old_timer_wait(&tmp_timer)) {
-			util_old_timer_start(&tmp_timer, 1000);
-			HAL_UART_Transmit(&huart2, (uint8_t*)&counter, sizeof(counter), 100);
-			counter++;
+			util_old_timer_start(&tmp_timer, 10 * SECOND_MS);
+			printTagLog(MAIN_TAG, "ADC1: %d, ADC2: %u", get_system_adc(0), get_system_adc(1));
 		}
 #endif
 		// TODO: remove end
+
+		if (rs485_cnt) {
+			rs485_cnt = 0;
+			HAL_UART_Transmit(&RS485_UART, (uint8_t*)rs485_input_chr, rs485_cnt, GENERAL_TIMEOUT_MS);
+			printTagLog(MAIN_TAG, "RS485: %s", rs485_input_chr);
+			memset(rs485_input_chr, 0, sizeof(rs485_input_chr));
+		}
 
 		system_tick();
 
@@ -206,9 +209,6 @@ int main(void)
 		if (!errTimer.wait()) {
 			system_error_handler((SOUL_STATUS)get_first_error());
 		}
-
-        // Pump
-        pump_process();
 
         out_tick();
 
@@ -220,6 +220,9 @@ int main(void)
 
         // Level update
         level_tick();
+
+        // Pump
+        pump_process();
 
         // Record & settings synchronize process
         log_tick();
@@ -281,8 +284,7 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_RTC|RCC_PERIPHCLK_ADC;
-  PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
   PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV6;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
@@ -357,6 +359,11 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	} else if (huart->Instance == CMD_UART.Instance) {
 		cmd_input(cmd_input_chr);
 		HAL_UART_Receive_IT(&CMD_UART, (uint8_t*)&cmd_input_chr, 1);
+	} else if (huart->Instance == RS485_UART.Instance) {
+		if (rs485_cnt >= __arr_len(rs485_input_chr)) {
+			rs485_cnt = 0;
+		}
+		HAL_UART_Receive_IT(&RS485_UART, (uint8_t*)&rs485_input_chr[rs485_cnt++], 1);
 	} else {
 		Error_Handler();
 	}

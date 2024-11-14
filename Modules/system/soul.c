@@ -151,7 +151,7 @@ void _reset_status(SOUL_STATUS status)
 	soul.statuses[status_num / BITS_IN_BYTE] &= (uint8_t)~(0x01 << (status_num % BITS_IN_BYTE));
 }
 
-#define CASE_STATUS(SOUL_ERR) case SOUL_ERR: snprintf(name, sizeof(name) - 1, "%s [%u]", __STR_DEF__(SOUL_ERR), SOUL_ERR); break;
+#define CASE_STATUS(SOUL_ERR) case SOUL_ERR: snprintf(name, sizeof(name) - 1, "[%03u] %s", SOUL_ERR, __STR_DEF__(SOUL_ERR)); break;
 char* get_status_name(SOUL_STATUS status)
 {
 	const char UNKNOWN_STATUS[] = "UNKNOWN_STATUS";
@@ -176,6 +176,7 @@ char* get_status_name(SOUL_STATUS status)
 	CASE_STATUS(PUMP_FAULT)
 	CASE_STATUS(RTC_FAULT)
 	CASE_STATUS(CAN_FAULT)
+	CASE_STATUS(DS1307_READY)
 	CASE_STATUS(MCU_ERROR)
 	CASE_STATUS(SYS_TICK_ERROR)
 	CASE_STATUS(RTC_ERROR)
@@ -202,7 +203,7 @@ char* get_status_name(SOUL_STATUS status)
 	CASE_STATUS(ERROR_HANDLER_CALLED)
 	CASE_STATUS(INTERNAL_ERROR)
 	default:
-		snprintf(name, sizeof(name) - 1, "%s [%u]", UNKNOWN_STATUS, status);
+		snprintf(name, sizeof(name) - 1, "[%03u] %s", status, UNKNOWN_STATUS);
 		break;
 	}
 

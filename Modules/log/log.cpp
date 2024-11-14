@@ -315,6 +315,10 @@ void _clear_log()
 
 void _init_s(void)
 {
+	if (!is_clock_started()) {
+		return;
+	}
+
 	fsm_gc_push_event(&log_fsm, &success_e);
 }
 
@@ -379,6 +383,9 @@ void save_a(void)
 	_make_record(record);
 
 	if (record.save() == RecordDB::RECORD_OK) {
+#if LOG_BEDUG
+		printTagLog(TAG, "Saving record");
+#endif
 		settings.pump_work_sec = 0;
 		settings.pump_downtime_sec = 0;
 		set_status(NEED_SAVE_SETTINGS);
@@ -397,6 +404,9 @@ void save_a(void)
 
 void base_a(void)
 {
+#if LOG_BEDUG
+	printTagLog(TAG, "Setting base server");
+#endif
 	set_base_server();
 }
 
@@ -407,6 +417,9 @@ void check_timeout_a(void)
 
 void send_a(void)
 {
+#if LOG_BEDUG
+	printTagLog(TAG, "Sending request");
+#endif
 	char data[SIM_LOG_SIZE] = {};
 	snprintf(
 		data,
@@ -465,7 +478,8 @@ void send_a(void)
 		_save_rtc_ram_log();
 		record.record.id = settings.server_log_id + 1;
 	}
-	if (// settings.calibrated &&
+	if (!first_request &&
+		// settings.calibrated &&
 		recordStatus == RecordDB::RECORD_OK &&
 		!is_base_server()
 	) {
@@ -551,7 +565,7 @@ void parse_a(void)
 
 	if (_update_time(data_ptr)) {
 #if LOG_BEDUG
-		printTagLog(TAG, "time updated\n");
+		printTagLog(TAG, "time updated");
 #endif
 	} else {
 #if LOG_BEDUG
@@ -577,7 +591,7 @@ void parse_a(void)
 	first_request = false;
 
 #if LOG_BEDUG
-	printTagLog(TAG, "Recieved response from the server\n");
+	printTagLog(TAG, "Recieved response from the server");
 #endif
 
 	if (!_find_param(&data_ptr, var_ptr, CF_ID_FIELD)) {

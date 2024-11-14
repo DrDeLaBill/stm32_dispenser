@@ -379,10 +379,12 @@ void get_clock_seconds_to_datetime(const uint64_t seconds, clock_date_t* date, c
 	time->Hours = (uint8_t)(hours % HOURS_PER_DAY);
 	uint64_t days = 1 + hours / HOURS_PER_DAY;
 
+#if !defined(SYSTEM_DS1307_CLOCK)
 	date->WeekDay = (uint8_t)((RTC_WEEKDAY_THURSDAY + days) % (DAYS_PER_WEEK)) + 1;
 	if (date->WeekDay == DAYS_PER_WEEK) {
 		date->WeekDay = 0;
 	}
+#endif
 	date->Month = 1;
 	while (days) {
 		uint16_t days_in_year = (date->Year % LEAP_YEAR_PERIOD > 0) ? DAYS_PER_YEAR : DAYS_PER_LEAP_YEAR;

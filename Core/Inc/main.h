@@ -112,6 +112,10 @@ extern UART_HandleTypeDef      huart1;
 #define SIM_MODULE_RESET_PORT  (SIM_RST_GPIO_Port)
 #define SIM_MODULE_RESET_PIN   (SIM_RST_Pin)
 
+// RS485
+extern UART_HandleTypeDef      huart2;
+#define RS485_UART             (huart2)
+
 // Clock
 extern I2C_HandleTypeDef       hi2c1;
 #define SYSTEM_I2C             (hi2c1)

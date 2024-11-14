@@ -49,7 +49,7 @@ private:
     static const char* TAG;
 
     static const uint32_t CLUST_MAGIC   = 0xBEDAC0DE;
-    static const uint8_t  CLUST_VERSION = 0x01;
+    static const uint8_t  CLUST_VERSION = 0x02;
     static const uint32_t CLUST_SIZE    = (
 		(
 			STORAGE_PAGE_PAYLOAD_SIZE -
@@ -64,7 +64,6 @@ private:
         uint8_t  rcrd_ver;
         Record   records[CLUST_SIZE];
     } RecordClust;
-
 
     uint32_t m_recordId;
 

@@ -50,16 +50,23 @@ void level_tick()
 
 int32_t get_level()
 {
-	if (!started) {
-		return LEVEL_ERROR;
-	}
 	int32_t sum = 0;
-	for (unsigned i = 0; i < __arr_len(level_adc); i++) {
-		int32_t level = _get_liquid_liters(level_adc[i]);
-		if (level == LEVEL_ERROR) {
-			return LEVEL_ERROR;
+	if (!started) {
+		for (unsigned i = 0; i < counter; i++) {
+			int32_t level = _get_liquid_liters(level_adc[i]);
+			if (level == LEVEL_ERROR) {
+				return LEVEL_ERROR;
+			}
+			sum += level;
 		}
-		sum += level;
+	} else {
+		for (unsigned i = 0; i < __arr_len(level_adc); i++) {
+			int32_t level = _get_liquid_liters(level_adc[i]);
+			if (level == LEVEL_ERROR) {
+				return LEVEL_ERROR;
+			}
+			sum += level;
+		}
 	}
 	return sum / (int32_t)__arr_len(level_adc);
 }
