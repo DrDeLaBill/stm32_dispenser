@@ -386,9 +386,6 @@ void save_a(void)
 		log_rtc_ram.log_time = record.record.time;
 		_save_rtc_ram_log();
 		util_old_timer_start(&log_timer, settings.sleep_ms);
-#if LOG_BEDUG
-		printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
-#endif
 	} else {
 		set_status(NEW_RECORD_WAS_NOT_SAVED);
 		util_old_timer_start(&log_timer, GENERAL_TIMEOUT_MS);

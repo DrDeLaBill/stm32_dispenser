@@ -183,7 +183,6 @@ void system_tick()
 #ifdef DEBUG
 	kFLOPScounter++;
 	if (!util_old_timer_wait(&kFLOPSTimer)) {
-		show_statuses();
 		printTagLog(
 			SYSTEM_TAG,
 			"kFLOPS: %lu.%lu",
@@ -193,6 +192,10 @@ void system_tick()
 		kFLOPScounter = 0;
 		util_old_timer_start(&kFLOPSTimer, (10 * SECOND_MS));
 	}
+	if (has_new_status_data()) {
+		show_statuses();
+	}
+
 #endif
 
 #if defined(DEBUG) || defined(GBEDUG_FORCE)

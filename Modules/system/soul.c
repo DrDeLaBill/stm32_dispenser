@@ -14,9 +14,10 @@ static const char TAG[] = "SOUL";
 #endif
 
 static soul_t soul = {
-	.has_new_error_data = false,
-	.last_err           = 0,
-	.statuses           = { 0 }
+	.has_new_error_data  = false,
+	.has_new_status_data = false,
+	.last_err            = 0,
+	.statuses            = { 0 }
 };
 
 
@@ -100,6 +101,11 @@ bool is_status(SOUL_STATUS status)
 void set_status(SOUL_STATUS status)
 {
 	if (status > STATUSES_START && status < STATUSES_END) {
+#if defined(DEBUG) || defined(GBEDUG_FORCE)
+		if (!is_status(status)) {
+			soul.has_new_status_data = true;
+		}
+#endif
 		_set_status(status);
 	}
 }
@@ -107,6 +113,11 @@ void set_status(SOUL_STATUS status)
 void reset_status(SOUL_STATUS status)
 {
 	if (status > STATUSES_START && status < STATUSES_END) {
+#if defined(DEBUG) || defined(GBEDUG_FORCE)
+		if (is_status(status)) {
+			soul.has_new_status_data = true;
+		}
+#endif
 		_reset_status(status);
 	}
 }
@@ -205,8 +216,14 @@ bool has_new_error_data()
 	return soul.has_new_error_data;
 }
 
+bool has_new_status_data()
+{
+	return soul.has_new_status_data;
+}
+
 void show_statuses()
 {
+	soul.has_new_status_data = false;
 	printTagLog(TAG, "Current device statuses:");
 
 	unsigned cnt = 0;

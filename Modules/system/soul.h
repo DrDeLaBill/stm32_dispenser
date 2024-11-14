@@ -113,6 +113,7 @@ typedef enum _SOUK_STATUS {
 typedef struct _soul_t {
 #if defined(DEBUG) || defined(GBEDUG_FORCE)
 	bool has_new_error_data;
+	bool has_new_status_data;
 #endif
 	SOUL_STATUS last_err;
 	uint8_t statuses[__div_up(SOUL_STATUSES_END - 1, BITS_IN_BYTE)];
@@ -136,7 +137,9 @@ void reset_status(SOUL_STATUS status);
 char* get_status_name(SOUL_STATUS status);
 #if defined(DEBUG) || defined(GBEDUG_FORCE) // TODO: add FAULTS to errors
 bool has_new_error_data();
+bool has_new_status_data();
 void show_errors();
+void show_statuses();
 #endif
 
 
