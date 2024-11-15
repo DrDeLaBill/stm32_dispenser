@@ -88,7 +88,7 @@ void SystemClock_Config(void);
 char cmd_input_chr = 0;
 char sim_input_chr = 0;
 
-unsigned rs485_cnt = 0;
+uint16_t rs485_cnt = 0;
 char rs485_input_chr[100] = {0};
 
 /* USER CODE END 0 */
@@ -181,7 +181,7 @@ int main(void)
 #endif
 	// TODO: remove end
 
-	set_status(HAS_NEW_RECORD);
+	set_status((SOUL_STATUS)HAS_NEW_RECORD);
 	utl::Timer errTimer(150 * SECOND_MS);
 	errTimer.start();
 	while (1)
@@ -195,11 +195,11 @@ int main(void)
 #endif
 		// TODO: remove end
 
-		if (rs485_cnt) {
-			rs485_cnt = 0;
+		if (rs485_cnt > 1) {
 			HAL_UART_Transmit(&RS485_UART, (uint8_t*)rs485_input_chr, rs485_cnt, GENERAL_TIMEOUT_MS);
 			printTagLog(MAIN_TAG, "RS485: %s", rs485_input_chr);
-			memset(rs485_input_chr, 0, sizeof(rs485_input_chr));
+			memset(rs485_input_chr, 0, rs485_cnt + 1);
+			rs485_cnt = 0;
 		}
 
 		system_tick();
@@ -360,7 +360,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 		cmd_input(cmd_input_chr);
 		HAL_UART_Receive_IT(&CMD_UART, (uint8_t*)&cmd_input_chr, 1);
 	} else if (huart->Instance == RS485_UART.Instance) {
-		if (rs485_cnt >= __arr_len(rs485_input_chr)) {
+		if (rs485_cnt >= __arr_len(rs485_input_chr) - 1) {
+			memset(rs485_input_chr, 0, sizeof(rs485_input_chr));
 			rs485_cnt = 0;
 		}
 		HAL_UART_Receive_IT(&RS485_UART, (uint8_t*)&rs485_input_chr[rs485_cnt++], 1);

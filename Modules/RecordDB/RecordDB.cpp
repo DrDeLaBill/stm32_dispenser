@@ -12,6 +12,7 @@
 #include "level.h"
 #include "clock.h"
 #include "gutils.h"
+#include "system.h"
 #include "settings.h"
 
 
@@ -241,7 +242,7 @@ RecordDB::RecordStatus RecordDB::save()
         return RECORD_ERROR;
     }
 
-    set_status(HAS_NEW_RECORD);
+    set_status((SOUL_STATUS)HAS_NEW_RECORD);
 
     printTagLog(
 		RecordDB::TAG,

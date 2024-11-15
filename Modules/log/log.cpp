@@ -328,7 +328,7 @@ void _idle_s(void)
 		log_timer.delay = settings.sleep_ms;
 	}
 
-	if (!util_old_timer_wait(&log_timer) && is_status(DS1307_READY)) {
+	if (!util_old_timer_wait(&log_timer) && is_status(CLOCK_READY)) {
 		fsm_gc_push_event(&log_fsm, &save_e);
 	}
 
@@ -389,12 +389,12 @@ void save_a(void)
 		settings.pump_work_sec = 0;
 		settings.pump_downtime_sec = 0;
 		set_status(NEED_SAVE_SETTINGS);
-		reset_status(NEW_RECORD_WAS_NOT_SAVED);
+		reset_status((SOUL_STATUS)NEW_RECORD_WAS_NOT_SAVED);
 		log_rtc_ram.log_time = record.record.time;
 		_save_rtc_ram_log();
 		util_old_timer_start(&log_timer, settings.sleep_ms);
 	} else {
-		set_status(NEW_RECORD_WAS_NOT_SAVED);
+		set_status((SOUL_STATUS)NEW_RECORD_WAS_NOT_SAVED);
 		util_old_timer_start(&log_timer, GENERAL_TIMEOUT_MS);
 #if LOG_BEDUG
 		printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
@@ -455,23 +455,23 @@ void send_a(void)
 	);
 
 	RecordDB::RecordStatus recordStatus = RecordDB::RECORD_NO_LOG;
-	if (!new_record_loaded && is_status(HAS_NEW_RECORD)) {
+	if (!new_record_loaded && is_status((SOUL_STATUS)HAS_NEW_RECORD)) {
 		record.setRecordId(settings.server_log_id);
 		recordStatus = record.loadNext();
 	}
 	if (recordStatus == RecordDB::RECORD_NO_LOG) {
-		reset_status(HAS_NEW_RECORD);
+		reset_status((SOUL_STATUS)HAS_NEW_RECORD);
 	} else if (recordStatus != RecordDB::RECORD_OK) {
 #if LOG_BEDUG
 		printTagLog(TAG, "error load record");
 #endif
 	}
-	if (!first_request && is_status(NEW_RECORD_WAS_NOT_SAVED)) {
+	if (!first_request && is_status((SOUL_STATUS)NEW_RECORD_WAS_NOT_SAVED)) {
 		util_old_timer_start(&log_timer, settings.sleep_ms);
 #if LOG_BEDUG
 		printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
 #endif
-		reset_status(NEW_RECORD_WAS_NOT_SAVED);
+		reset_status((SOUL_STATUS)NEW_RECORD_WAS_NOT_SAVED);
 		recordStatus = RecordDB::RECORD_OK;
 		_make_record(record);
 		log_rtc_ram.log_time = record.record.time;
@@ -518,7 +518,7 @@ void send_a(void)
 		sended_id = 0;
 	}
 
-	if (is_status(DS1307_READY)) {
+	if (is_status(CLOCK_READY)) {
 		new_record_loaded = false;
 	}
 
@@ -672,16 +672,16 @@ void parse_a(void)
 
 
 	RecordDB::RecordStatus recordStatus = RecordDB::RECORD_NO_LOG;
-	if (is_status(HAS_NEW_RECORD)) {
+	if (is_status((SOUL_STATUS)HAS_NEW_RECORD)) {
 		record.setRecordId(settings.server_log_id);
 		recordStatus = record.loadNext();
 	}
 	if (recordStatus == RecordDB::RECORD_OK) {
 		util_old_timer_start(&send_timer, GENERAL_TIMEOUT_MS);
-		set_status(HAS_NEW_RECORD);
+		set_status((SOUL_STATUS)HAS_NEW_RECORD);
 	} else {
 		util_old_timer_start(&send_timer, SEND_DELAY_NS);
-		reset_status(HAS_NEW_RECORD);
+		reset_status((SOUL_STATUS)HAS_NEW_RECORD);
 	}
 }
 

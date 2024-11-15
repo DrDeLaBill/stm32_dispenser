@@ -10,11 +10,12 @@
 #include "pump.h"
 #include "level.h"
 #include "gutils.h"
+#include "system.h"
 #include "settings.h"
 
 
 #define STR_CMD_SIZE (20)
-#define CMD_DELAY_MS (50)
+#define CMD_DELAY_MS (1000)
 
 
 static void _clear();
@@ -46,9 +47,10 @@ void cmd_input(uint8_t byte)
 	if (strlen(buffer) >= sizeof(buffer) - 1) {
 		_clear();
 	}
-	if (byte == '\r') {
+	if (byte == '\r' || byte == '\n') {
 		return;
 	}
+	received = true;
 	buffer[strlen(buffer)] = byte;
 	util_old_timer_start(&timer, CMD_DELAY_MS);
 }
@@ -59,7 +61,8 @@ void cmd_process()
 		return;
 	}
 
-	if (!util_old_timer_wait(&timer)) {
+	if (received && !util_old_timer_wait(&timer)) {
+		printTagLog(TAG, "unknown command: \"%s\"", buffer);
 		_clear();
 	}
 
@@ -73,9 +76,10 @@ void cmd_process()
 				)
 			)
 		) {
+			printTagLog(TAG, "%s", buffer);
 			actions[i].func();
 			_clear();
-			break;
+			return;
 		}
 	}
 }
@@ -90,6 +94,7 @@ void _cmd_status()
 {
 	settings_show();
 	pump_show_status();
+	printTagLog(TAG, "ADC1: %d, ADC2: %u", get_system_adc(0), get_system_adc(1));
 }
 
 void _cmd_saveadcmin()

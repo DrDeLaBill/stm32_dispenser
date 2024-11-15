@@ -17,8 +17,13 @@
 #define WATCHDOG_BEDUG
 #define SYSTEM_FLASH_MODE
 
+#define SYSTEM_ADC_DELAY_MS ((uint32_t)100)
+
 
 static const char TAG[] = "SYS";
+
+static util_old_timer_t adc_timer = {};
+static bool adc_started = false;
 
 StorageDriver storageDriver;
 StorageAT storage(
@@ -117,11 +122,11 @@ extern "C" void rtc_watchdog_check()
 {
 	static bool tested = false;
 
-	if (!is_status(DS1307_READY)) {
+	if (!is_status(CLOCK_READY)) {
 		if (is_clock_ready()) {
-			set_status(DS1307_READY);
+			set_status(CLOCK_READY);
 		} else {
-			reset_status(DS1307_READY);
+			reset_status(CLOCK_READY);
 		}
 		return;
 	}
@@ -335,12 +340,45 @@ extern "C" void rtc_watchdog_check()
 #endif
 	}
 
+	reset_error(RTC_ERROR);
 	tested = true;
 
 
 #ifdef WATCHDOG_BEDUG
 	printTagLog(TAG, "RTC testing done");
 #endif
+}
+
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+	(void)hadc;
+	adc_started = false;
+	util_old_timer_start(&adc_timer, SYSTEM_ADC_DELAY_MS);
+}
+
+extern "C" void adc_watchdog_check()
+{
+	if (!is_status(SYSTEM_SOFTWARE_STARTED)) {
+		return;
+	}
+
+	if (util_old_timer_wait(&adc_timer)) {
+		return;
+	}
+
+	if (adc_started) {
+		return;
+	}
+
+	extern ADC_HandleTypeDef hadc1;
+	extern uint32_t SYSTEM_ADC_VOLTAGE[SYSTEM_ADC_VOLTAGE_COUNT];
+#ifdef STM32F1
+	HAL_ADCEx_Calibration_Start(&hadc1);
+#endif
+	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)SYSTEM_ADC_VOLTAGE, SYSTEM_ADC_VOLTAGE_COUNT);
+
+	adc_started = true;
 }
 
 extern "C" void memory_watchdog_check()

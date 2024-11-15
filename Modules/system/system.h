@@ -12,6 +12,7 @@ extern "C" {
 #include <stdint.h>
 
 #include "soul.h"
+#include "system_config.h"
 
 
 #ifdef DEBUG

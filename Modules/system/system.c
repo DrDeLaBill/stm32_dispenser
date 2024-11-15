@@ -55,10 +55,12 @@ extern void sys_clock_watchdog_check();
 extern void ram_watchdog_check();
 extern void rtc_watchdog_check();
 extern void memory_watchdog_check();
+extern void adc_watchdog_check();
 watchdogs_t watchdogs[] = {
 	{restart_watchdog_check,   SECOND_MS / 10, {0,0}, HARDWARE_WATCHDOG},
 	{sys_clock_watchdog_check, SECOND_MS / 10, {0,0}, HARDWARE_WATCHDOG},
 	{ram_watchdog_check,       5 * SECOND_MS,  {0,0}, HARDWARE_WATCHDOG},
+	{adc_watchdog_check,       SECOND_MS / 10, {0,0}, HARDWARE_WATCHDOG},
 	{power_watchdog_check,     SECOND_MS,      {0,0}, SOFTWARE_WATCHDOG},
 	{rtc_watchdog_check,       SECOND_MS,      {0,0}, SOFTWARE_WATCHDOG},
 	{memory_watchdog_check,    SECOND_MS,      {0,0}, SOFTWARE_WATCHDOG},
@@ -89,6 +91,8 @@ void system_pre_load(void)
 	_system_error_timer_disable();
 
 	util_old_timer_start(&err_timer, err_delay_ms);
+
+	set_status(SYSTEM_HARDWARE_STARTED);
 }
 
 void system_post_load(void)
@@ -96,14 +100,10 @@ void system_post_load(void)
 #if SYSTEM_BEDUG
 	printTagLog(SYSTEM_TAG, "System postload");
 #endif
-	extern ADC_HandleTypeDef hadc1;
+
+	set_status(SYSTEM_SOFTWARE_STARTED);
 
 	SystemInfo();
-
-#ifdef STM32F1
-	HAL_ADCEx_Calibration_Start(&hadc1);
-#endif
-	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)SYSTEM_ADC_VOLTAGE, SYSTEM_ADC_VOLTAGE_COUNT);
 
 	const uint32_t delay_ms = 10000;
 	util_old_timer_t timer = {0};
@@ -114,6 +114,8 @@ void system_post_load(void)
 		util_old_timer_start(&timer, delay_ms);
 	}
 	while (1) {
+		adc_watchdog_check();
+
 		uint32_t voltage = get_system_power();
 		if (STM_MIN_VOLTAGEx10 <= voltage && voltage <= STM_MAX_VOLTAGEx10) {
 			break;
@@ -652,7 +654,6 @@ void _system_start_ram_fill(void)
 		*(start++) = SYSTEM_CANARY_WORD;
 	}
 }
-
 
 typedef struct _error_timer_t {
 	TIM_TypeDef tim;
