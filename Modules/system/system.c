@@ -9,31 +9,40 @@
 #include "clock.h"
 #include "hal_defs.h"
 
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 #   include "ds1307.h"
 #endif
 
+#define SYSTEM_WATCHDOG_MIN_DELAY_MS (20)
+
 #define SYSTEM_BKUP_STATUS_TYPE uint32_t
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 #   define SYSTEM_BKUP_SIZE (DS1307_REG_RAM_END - DS1307_REG_RAM - sizeof(SYSTEM_BKUP_STATUS_TYPE))
-#else
+#elif !defined(GSYSTEM_NO_RTC_W)
 #   define SYSTEM_BKUP_SIZE (RTC_BKP_NUMBER - RTC_BKP_DR2 - sizeof(SYSTEM_BKUP_STATUS_TYPE))
 #endif
 
 
+#ifndef GSYSTEM_NO_RAM_W
 static void _system_start_ram_fill(void);
+#endif
 static void _system_error_timer_start(uint32_t delay_ms);
 static bool _system_error_timer_wait(void);
 static void _system_error_timer_disable(void);
+static void _system_watchdog_check(void);
 
 
 static const char SYSTEM_TAG[] = "SYS";
 static const uint32_t err_delay_ms = 30 * MINUTE_MS;
 
+#ifndef GSYSTEM_NO_SYS_TICK_W
 static bool system_hsi_initialized = false;
+#endif
 static util_old_timer_t err_timer = {0};
 
-uint16_t SYSTEM_ADC_VOLTAGE[SYSTEM_ADC_VOLTAGE_COUNT] = {0};
+#ifndef GSYSTEM_NO_ADC_W
+uint16_t SYSTEM_ADC_VOLTAGE[GSYSTEM_ADC_VOLTAGE_COUNT] = {0};
+#endif
 
 
 typedef enum _watchdog_type_t {
@@ -49,26 +58,57 @@ typedef struct _watchdogs_t {
 } watchdogs_t;
 
 
-extern void power_watchdog_check();
+#ifndef GSYSTEM_NO_RESTART_W
 extern void restart_watchdog_check();
+#endif
+#ifndef GSYSTEM_NO_SYS_TICK_W
 extern void sys_clock_watchdog_check();
+#endif
+#ifndef GSYSTEM_NO_RAM_W
 extern void ram_watchdog_check();
-extern void rtc_watchdog_check();
-extern void memory_watchdog_check();
+#endif
+#ifndef GSYSTEM_NO_ADC_W
 extern void adc_watchdog_check();
+#endif
+#if !defined(GSYSTEM_NO_POWER_W) && !defined(GSYSTEM_NO_ADC_W)
+extern void power_watchdog_check();
+#endif
+#ifndef GSYSTEM_NO_RTC_W
+extern void rtc_watchdog_check();
+#endif
+#ifndef GSYSTEM_NO_MEMORY_W
+extern void memory_watchdog_check();
+#endif
 watchdogs_t watchdogs[] = {
-	{restart_watchdog_check,   SECOND_MS / 10, {0,0}, HARDWARE_WATCHDOG},
-	{sys_clock_watchdog_check, SECOND_MS / 10, {0,0}, HARDWARE_WATCHDOG},
-	{ram_watchdog_check,       5 * SECOND_MS,  {0,0}, HARDWARE_WATCHDOG},
-	{adc_watchdog_check,       SECOND_MS / 10, {0,0}, HARDWARE_WATCHDOG},
-	{power_watchdog_check,     SECOND_MS,      {0,0}, SOFTWARE_WATCHDOG},
-	{rtc_watchdog_check,       SECOND_MS,      {0,0}, SOFTWARE_WATCHDOG},
-	{memory_watchdog_check,    SECOND_MS,      {0,0}, SOFTWARE_WATCHDOG},
+	{_system_watchdog_check,   SYSTEM_WATCHDOG_MIN_DELAY_MS, {0,0}, HARDWARE_WATCHDOG},
+#ifndef GSYSTEM_NO_RESTART_W
+	{restart_watchdog_check,   SECOND_MS / 10,               {0,0}, HARDWARE_WATCHDOG},
+#endif
+#ifndef GSYSTEM_NO_SYS_TICK_W
+	{sys_clock_watchdog_check, SECOND_MS / 10,               {0,0}, HARDWARE_WATCHDOG},
+#endif
+#ifndef GSYSTEM_NO_RAM_W
+	{ram_watchdog_check,       5 * SECOND_MS,                {0,0}, HARDWARE_WATCHDOG},
+#endif
+#ifndef GSYSTEM_NO_ADC_W
+	{adc_watchdog_check,       SECOND_MS / 10,               {0,0}, HARDWARE_WATCHDOG},
+#endif
+#if !defined(GSYSTEM_NO_POWER_W) && !defined(GSYSTEM_NO_ADC_W)
+	{power_watchdog_check,     SECOND_MS,                    {0,0}, SOFTWARE_WATCHDOG},
+#endif
+#ifndef GSYSTEM_NO_RTC_W
+	{rtc_watchdog_check,       SECOND_MS,                    {0,0}, SOFTWARE_WATCHDOG},
+#endif
+#ifndef GSYSTEM_NO_MEMORY_W
+	{memory_watchdog_check,    SECOND_MS,                    {0,0}, SOFTWARE_WATCHDOG},
+#endif
 };
 
 void system_pre_load(void)
 {
+#ifndef GSYSTEM_NO_RAM_W
 	_system_start_ram_fill();
+#endif
 
 	if (!MCUcheck()) {
 		set_error(MCU_ERROR);
@@ -76,6 +116,7 @@ void system_pre_load(void)
 		while(1) {}
 	}
 
+#ifndef GSYSTEM_NO_SYS_TICK_W
 	RCC->CR |= RCC_CR_HSEON;
 
 	_system_error_timer_start(SECOND_MS);
@@ -89,6 +130,7 @@ void system_pre_load(void)
 		set_error(SYS_TICK_FAULT);
 	}
 	_system_error_timer_disable();
+#endif
 
 	util_old_timer_start(&err_timer, err_delay_ms);
 
@@ -105,6 +147,7 @@ void system_post_load(void)
 
 	SystemInfo();
 
+#ifndef GSYSTEM_NO_ADC_W
 	const uint32_t delay_ms = 10000;
 	util_old_timer_t timer = {0};
 	bool need_error_timer = is_status(SYS_TICK_FAULT);
@@ -122,16 +165,21 @@ void system_post_load(void)
 		}
 
 		if (is_status(SYS_TICK_FAULT) && !_system_error_timer_wait()) {
+#ifndef GSYSTEM_NO_SYS_TICK_W
 			set_error(SYS_TICK_ERROR);
+#endif
 			break;
 		} else if (!util_old_timer_wait(&timer)) {
+#ifndef GSYSTEM_NO_SYS_TICK_W
 			set_error(SYS_TICK_ERROR);
+#endif
 			break;
 		}
 	}
 	if (need_error_timer) {
 		_system_error_timer_disable();
 	}
+#endif
 
 	if (is_error(SYS_TICK_ERROR) || is_error(POWER_ERROR)) {
 		system_error_handler(
@@ -141,6 +189,7 @@ void system_post_load(void)
 		);
 	}
 
+#ifndef GSYSTEM_NO_RTC_W
 	clock_begin();
 	SYSTEM_BKUP_STATUS_TYPE status = 0;
 	for (uint8_t i = 0; i < sizeof(status); i++) {
@@ -153,6 +202,8 @@ void system_post_load(void)
 	}
 	set_last_error((SOUL_STATUS)status);
 	set_clock_ram(0, 0);
+#endif
+
 #if SYSTEM_BEDUG
 	if (get_last_error()) {
 		printTagLog(SYSTEM_TAG, "Last reload error: %s", get_status_name(get_last_error()));
@@ -166,62 +217,13 @@ void system_post_load(void)
 
 void system_tick()
 {
-#ifdef DEBUG
-	static unsigned kFLOPScounter = 0;
-	static util_old_timer_t kFLOPSTimer = {0,(10 * SECOND_MS)};
-#endif
 	static util_old_timer_t timer = {0,0};
 	static unsigned index = 0;
-
-	if (!util_old_timer_wait(&err_timer)) {
-		system_error_handler(
-			get_first_error() ? get_first_error() : INTERNAL_ERROR
-		);
-	}
-	if (!has_errors()) {
-		util_old_timer_start(&err_timer, err_delay_ms);
-	}
-
-#ifdef DEBUG
-	kFLOPScounter++;
-	if (!util_old_timer_wait(&kFLOPSTimer)) {
-		printTagLog(
-			SYSTEM_TAG,
-			"kFLOPS: %lu.%lu",
-			kFLOPScounter / (10 * SECOND_MS),
-			(kFLOPScounter / SECOND_MS) % 10
-		);
-		kFLOPScounter = 0;
-		util_old_timer_start(&kFLOPSTimer, (10 * SECOND_MS));
-	}
-	if (has_new_status_data()) {
-		show_statuses();
-	}
-
-#endif
-
-#if defined(DEBUG) || defined(GBEDUG_FORCE)
-	if (has_new_error_data()) {
-		show_errors();
-	}
-#endif
-
-	if (!is_error(STACK_ERROR) &&
-		!is_error(SYS_TICK_ERROR)
-	) {
-		set_status(SYSTEM_HARDWARE_READY);
-	} else {
-		reset_status(SYSTEM_HARDWARE_READY);
-	}
 
 	if (!is_status(SYS_TICK_FAULT) && util_old_timer_wait(&timer)) {
 		return;
 	}
-	util_old_timer_start(&timer, 50);
-
-	if (!is_status(SYSTEM_HARDWARE_READY)) {
-		reset_status(SYSTEM_SOFTWARE_READY);
-	}
+	util_old_timer_start(&timer, SYSTEM_WATCHDOG_MIN_DELAY_MS);
 
 	if (index >= __arr_len(watchdogs)) {
 		index = 0;
@@ -264,12 +266,14 @@ void system_error_handler(SOUL_STATUS error)
 	printTagLog(SYSTEM_TAG, "system_error_handler called error=%s", get_status_name(error));
 #endif
 
+#ifndef GSYSTEM_NO_SYS_TICK_W
 	if (is_error(SYS_TICK_ERROR) && !system_hsi_initialized) {
 		system_hsi_config();
 	}
+#endif
 
+#ifndef GSYSTEM_NO_RTC_W
 	if (!is_clock_started()) {
-#if defined(SYSTEM_DS1307_CLOCK)
 		SYSTEM_CLOCK_I2C.Instance = I2C1;
 		SYSTEM_CLOCK_I2C.Init.ClockSpeed = 100000;
 		SYSTEM_CLOCK_I2C.Init.DutyCycle = I2C_DUTYCYCLE_2;
@@ -282,7 +286,6 @@ void system_error_handler(SOUL_STATUS error)
 		if (HAL_I2C_Init(&SYSTEM_CLOCK_I2C) != HAL_OK) {
 			set_error(I2C_ERROR);
 		}
-#endif
 		clock_begin();
 	}
 	if (!is_clock_ready()) {
@@ -292,6 +295,7 @@ void system_error_handler(SOUL_STATUS error)
 	if (is_clock_ready()) {
 		set_clock_ram(0, (uint32_t)error);
 	}
+#endif
 
 	const uint32_t delay_ms = 30 * SECOND_MS;
 	util_old_timer_t timer = {0};
@@ -326,6 +330,7 @@ void system_error_handler(SOUL_STATUS error)
 	NVIC_SystemReset();
 }
 
+#ifndef GSYSTEM_NO_ADC_W
 uint32_t get_system_power(void)
 {
 	if (!SYSTEM_ADC_VOLTAGE[0]) {
@@ -333,8 +338,9 @@ uint32_t get_system_power(void)
 	}
 	return (STM_ADC_MAX * STM_REF_VOLTAGEx10) / SYSTEM_ADC_VOLTAGE[0];
 }
+#endif
 
-
+#ifndef GSYSTEM_NO_SYS_TICK_W
 __attribute__((weak)) void system_hse_config(void)
 {
 	RCC_OscInitTypeDef RCC_OscInitStruct   = {0};
@@ -461,9 +467,11 @@ __attribute__((weak)) void system_hsi_config(void)
 
 	system_hsi_initialized = true;
 }
+#endif
 
 __attribute__((weak)) void system_error_loop(void) {}
 
+#if defined(GSYSTEM_EEPROM_MODE) || defined(SYSTEM_I2C) || (defined(GSYSTEM_DS1307_CLOCK) && defined(GSYSTEM_NO_RTC_W))
 void system_reset_i2c_errata(void)
 {
 #if SYSTEM_BEDUG
@@ -549,6 +557,9 @@ void system_reset_i2c_errata(void)
 
 	HAL_I2C_Init(&SYSTEM_I2C);
 }
+#else
+#   warning "System i2c has not selected"
+#endif
 
 char* get_system_serial_str(void)
 {
@@ -566,6 +577,7 @@ char* get_system_serial_str(void)
 	return str_uid;
 }
 
+#ifndef GSYSTEM_NO_SYS_TICK_W
 void system_sys_tick_reanimation(void)
 {
 	extern void SystemClock_Config(void);
@@ -615,18 +627,29 @@ void system_sys_tick_reanimation(void)
 	__enable_irq();
 }
 
+void HAL_RCC_CSSCallback(void)
+{
+	system_sys_tick_reanimation();
+}
+
+#endif
+
+#ifndef GSYSTEM_NO_ADC_W
 uint16_t get_system_adc(unsigned index)
 {
-#if SYSTEM_ADC_VOLTAGE_COUNT <= 1
+#if GSYSTEM_ADC_VOLTAGE_COUNT <= 1
+	(void)index;
 	return 0;
 #else
-	if (index + 1 >= SYSTEM_ADC_VOLTAGE_COUNT) {
+	if (index + 1 >= GSYSTEM_ADC_VOLTAGE_COUNT) {
 		return 0;
 	}
 	return SYSTEM_ADC_VOLTAGE[index+1];
 #endif
 }
+#endif
 
+#ifndef GSYSTEM_NO_RTC_W
 bool get_system_rtc_ram(const uint8_t idx, uint8_t* data)
 {
 	if (idx + sizeof(SYSTEM_BKUP_STATUS_TYPE) >= SYSTEM_BKUP_SIZE) {
@@ -642,7 +665,9 @@ bool set_system_rtc_ram(const uint8_t idx, const uint8_t data)
 	}
 	return set_clock_ram(idx + sizeof(SYSTEM_BKUP_STATUS_TYPE), data);
 }
+#endif
 
+#ifndef GSYSTEM_NO_RAM_W
 void _system_start_ram_fill(void)
 {
 	extern unsigned _ebss;
@@ -654,6 +679,7 @@ void _system_start_ram_fill(void)
 		*(start++) = SYSTEM_CANARY_WORD;
 	}
 }
+#endif
 
 typedef struct _error_timer_t {
 	TIM_TypeDef tim;
@@ -699,5 +725,66 @@ void _system_error_timer_disable(void)
 	} else {
 		TIM1->CR1 &= ~(TIM_CR1_CEN);
 		__TIM1_CLK_DISABLE();
+	}
+}
+
+void _system_watchdog_check(void)
+{
+#ifdef DEBUG
+	static unsigned kFLOPScounter = 0;
+	static util_old_timer_t kFLOPSTimer = {0,(10 * SECOND_MS)};
+#endif
+
+	if (!util_old_timer_wait(&err_timer)) {
+		system_error_handler(
+			get_first_error() ? get_first_error() : INTERNAL_ERROR
+		);
+	}
+	if (!has_errors()) {
+		util_old_timer_start(&err_timer, err_delay_ms);
+	}
+
+#ifdef DEBUG
+	kFLOPScounter++;
+	if (!util_old_timer_wait(&kFLOPSTimer)) {
+		printTagLog(
+			SYSTEM_TAG,
+			"kFLOPS: %lu.%lu",
+			kFLOPScounter / (10 * SECOND_MS),
+			(kFLOPScounter / SECOND_MS) % 10
+		);
+#   ifndef GSYSTEM_NO_ADC_W
+		uint32_t power = get_system_power();
+		printTagLog(
+			SYSTEM_TAG,
+			"Power: %lu.%lu",
+			power / 10,
+			power % 10
+		);
+#   endif
+		kFLOPScounter = 0;
+		util_old_timer_start(&kFLOPSTimer, (10 * SECOND_MS));
+	}
+	if (has_new_status_data()) {
+		show_statuses();
+	}
+#endif
+
+#if defined(DEBUG) || defined(GBEDUG_FORCE)
+	if (has_new_error_data()) {
+		show_errors();
+	}
+#endif
+
+	if (!is_error(STACK_ERROR) &&
+		!is_error(SYS_TICK_ERROR)
+	) {
+		set_status(SYSTEM_HARDWARE_READY);
+	} else {
+		reset_status(SYSTEM_HARDWARE_READY);
+	}
+
+	if (!is_status(SYSTEM_HARDWARE_READY)) {
+		reset_status(SYSTEM_SOFTWARE_READY);
 	}
 }

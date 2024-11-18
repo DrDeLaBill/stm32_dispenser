@@ -21,8 +21,8 @@ extern "C" {
 
 #define SYSTEM_CANARY_WORD ((uint32_t)0xBEDAC0DE)
 
-#ifndef SYSTEM_ADC_VOLTAGE_COUNT
-#   define SYSTEM_ADC_VOLTAGE_COUNT (1)
+#ifndef GSYSTEM_ADC_VOLTAGE_COUNT
+#   define GSYSTEM_ADC_VOLTAGE_COUNT (1)
 #endif
 
 void system_pre_load(void);
@@ -34,22 +34,30 @@ bool is_system_ready();
 
 void system_error_handler(SOUL_STATUS error);
 
+#ifndef GSYSTEM_NO_ADC_W
 uint32_t get_system_power(void);
+#endif
 
 void system_reset_i2c_errata(void);
 
 char* get_system_serial_str(void);
 
-void system_hsi_config(void);
-void system_hse_config(void);
 void system_error_loop(void);
 
+#ifndef GSYSTEM_NO_SYS_TICK_W
+void system_hsi_config(void);
+void system_hse_config(void);
 void system_sys_tick_reanimation(void);
+#endif
 
+#ifndef GSYSTEM_NO_ADC_W
 uint16_t get_system_adc(unsigned index);
+#endif
 
+#ifndef GSYSTEM_NO_RTC_W
 bool get_system_rtc_ram(const uint8_t idx, uint8_t* data);
 bool set_system_rtc_ram(const uint8_t idx, const uint8_t data);
+#endif
 
 
 #ifdef __cplusplus

@@ -90,6 +90,7 @@ char sim_input_chr = 0;
 
 uint16_t rs485_cnt = 0;
 char rs485_input_chr[100] = {0};
+utl::Timer RS485Timer(GENERAL_TIMEOUT_MS);
 
 /* USER CODE END 0 */
 
@@ -195,11 +196,12 @@ int main(void)
 #endif
 		// TODO: remove end
 
-		if (rs485_cnt > 1) {
-			HAL_UART_Transmit(&RS485_UART, (uint8_t*)rs485_input_chr, rs485_cnt, GENERAL_TIMEOUT_MS);
+		if (strlen(rs485_input_chr) && !RS485Timer.wait()) {
 			printTagLog(MAIN_TAG, "RS485: %s", rs485_input_chr);
 			memset(rs485_input_chr, 0, rs485_cnt + 1);
 			rs485_cnt = 0;
+			HAL_UART_AbortReceive_IT(&RS485_UART);
+			HAL_UART_Receive_IT(&RS485_UART, (uint8_t*)&rs485_input_chr[rs485_cnt++], 1);
 		}
 
 		system_tick();
@@ -347,11 +349,6 @@ extern "C" void system_error_loop()
 	HAL_GPIO_TogglePin(RED_LED_GPIO_Port, RED_LED_Pin);
 }
 
-void HAL_RCC_CSSCallback(void)
-{
-	system_sys_tick_reanimation();
-}
-
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	if (huart->Instance == SIM_MODULE_UART.Instance) {
 		sim_proccess_input(sim_input_chr);
@@ -364,6 +361,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			memset(rs485_input_chr, 0, sizeof(rs485_input_chr));
 			rs485_cnt = 0;
 		}
+		RS485Timer.start();
 		HAL_UART_Receive_IT(&RS485_UART, (uint8_t*)&rs485_input_chr[rs485_cnt++], 1);
 	} else {
 		Error_Handler();
@@ -371,6 +369,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 }
 
 int _write(int, uint8_t *ptr, int len) {
+	HAL_UART_Transmit(&RS485_UART, (uint8_t*)ptr, static_cast<uint16_t>(len), GENERAL_TIMEOUT_MS);
     HAL_UART_Transmit(&BEDUG_UART, (uint8_t*)ptr, static_cast<uint16_t>(len), GENERAL_TIMEOUT_MS);
 #ifdef DEBUG
     for (int DataIdx = 0; DataIdx < len; DataIdx++) {

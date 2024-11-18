@@ -10,7 +10,7 @@
 #include "hal_defs.h"
 
 
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 #   include "ds1307.h"
 #else
 extern RTC_HandleTypeDef hrtc;
@@ -44,7 +44,7 @@ uint8_t _get_days_in_month(uint16_t year, Months month);
 void clock_begin()
 {
 	clock_started = true;
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 	DS1307_Init();
 #endif
 }
@@ -56,7 +56,7 @@ bool is_clock_started()
 
 uint16_t get_clock_year()
 {
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 	uint16_t year = 0;
 	if (DS1307_GetYear(&year) != DS1307_OK) {
 		year = 0;
@@ -74,7 +74,7 @@ uint16_t get_clock_year()
 
 uint8_t get_clock_month()
 {
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 	uint8_t month = 0;
 	if (DS1307_GetMonth(&month) != DS1307_OK) {
 		month = 0;
@@ -92,7 +92,7 @@ uint8_t get_clock_month()
 
 uint8_t get_clock_date()
 {
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 	uint8_t date = 0;
 	if (DS1307_GetDate(&date) != DS1307_OK) {
 		date = 0;
@@ -110,7 +110,7 @@ uint8_t get_clock_date()
 
 uint8_t get_clock_hour()
 {
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 	uint8_t hour = 0;
 	if (DS1307_GetHour(&hour) != DS1307_OK) {
 		hour = 0;
@@ -128,7 +128,7 @@ uint8_t get_clock_hour()
 
 uint8_t get_clock_minute()
 {
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 	uint8_t minute = 0;
 	if (DS1307_GetMinute(&minute) != DS1307_OK) {
 		minute = 0;
@@ -146,7 +146,7 @@ uint8_t get_clock_minute()
 
 uint8_t get_clock_second()
 {
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 	uint8_t second = 0;
 	if (DS1307_GetSecond(&second) != DS1307_OK) {
 		second = 0;
@@ -170,7 +170,7 @@ bool save_clock_time(const clock_time_t* time)
 	) {
         return false;
     }
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 	if (DS1307_SetHour(time->Hours) != DS1307_OK) {
 		return false;
 	}
@@ -222,7 +222,7 @@ bool save_clock_date(const clock_date_t* date)
 	if (date->Date > DAYS_PER_MONTH_MAX || date->Month > MONTHS_PER_YEAR) {
 		return false;
 	}
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 	if (DS1307_SetYear((uint16_t)date->Year) != DS1307_OK) {
 		return false;
 	}
@@ -275,7 +275,7 @@ bool save_clock_date(const clock_date_t* date)
 
 bool get_clock_rtc_time(clock_time_t* time)
 {
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 	if (DS1307_GetHour(&time->Hours) != DS1307_OK) {
 		return false;
 	}
@@ -300,7 +300,7 @@ bool get_clock_rtc_time(clock_time_t* time)
 
 bool get_clock_rtc_date(clock_date_t* date)
 {
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 	if (DS1307_GetYear(&date->Year) != DS1307_OK) {
 		return false;
 	}
@@ -379,7 +379,7 @@ void get_clock_seconds_to_datetime(const uint64_t seconds, clock_date_t* date, c
 	time->Hours = (uint8_t)(hours % HOURS_PER_DAY);
 	uint64_t days = 1 + hours / HOURS_PER_DAY;
 
-#if !defined(SYSTEM_DS1307_CLOCK)
+#if !defined(GSYSTEM_DS1307_CLOCK)
 	date->WeekDay = (uint8_t)((RTC_WEEKDAY_THURSDAY + days) % (DAYS_PER_WEEK)) + 1;
 	if (date->WeekDay == DAYS_PER_WEEK) {
 		date->WeekDay = 0;
@@ -474,7 +474,7 @@ char* get_clock_time_format_by_sec(uint64_t seconds)
 
 bool set_clock_ready()
 {
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 	bool need_erase = !is_clock_ready();
 	for (uint8_t i = 0; i < sizeof(BEDAC0DE); i++) {
 		if (DS1307_SetRegByte(
@@ -503,7 +503,7 @@ bool set_clock_ready()
 
 bool is_clock_ready()
 {
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 	for (uint8_t i = 0; i < sizeof(BEDAC0DE); i++) {
 		uint8_t value = 0;
 		if (DS1307_GetRegByte(
@@ -528,7 +528,7 @@ bool is_clock_ready()
 
 bool get_clock_ram(const uint8_t idx, uint8_t* data)
 {
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 	if (DS1307_REG_RAM + idx > DS1307_REG_RAM_END) {
 		return false;
 	}
@@ -547,7 +547,7 @@ bool get_clock_ram(const uint8_t idx, uint8_t* data)
 
 bool set_clock_ram(const uint8_t idx, uint8_t data)
 {
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 	if (DS1307_REG_RAM + idx > DS1307_REG_RAM_END) {
 		return false;
 	}

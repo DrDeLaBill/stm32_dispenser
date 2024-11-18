@@ -1,4 +1,4 @@
-/* Copyright © 2023 Georgy E. All rights reserved. */
+/* Copyright © 2024 Georgy E. All rights reserved. */
 
 #include "StorageDriver.h"
 
@@ -8,10 +8,15 @@
 
 #include "StorageType.h"
 
-#ifdef EEPROM_MODE
+#ifdef GSYSTEM_EEPROM_MODE
 #   include "at24cm01.h"
 #else
 #   include "w25qxx.h"
+#endif
+
+
+#if !(defined(GSYSTEM_EEPROM_MODE) || defined(GSYSTEM_FLASH_MODE))
+#   warning "Storage driver mode has not selected"
 #endif
 
 
@@ -31,40 +36,40 @@ uint32_t StorageDriver::lastAddress = 0;
 
 
 StorageStatus StorageDriver::read(const uint32_t address, uint8_t *data, const uint32_t len) {
-#ifdef EEPROM_MODE
+#ifdef GSYSTEM_EEPROM_MODE
 	if (is_error(POWER_ERROR) || is_status(MEMORY_ERROR)) {
 
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
 		printTagLog(TAG, "Error power");
-#endif
+#   endif
 
 		return STORAGE_ERROR;
 	}
 	eeprom_status_t status = EEPROM_OK;
 
-#if STORAGE_DRIVER_USE_BUFFER
+#   if STORAGE_DRIVER_USE_BUFFER
 
 	if (hasBuffer && lastAddress == address && len == STORAGE_PAGE_SIZE) {
 		memcpy(data, bufferPage, len);
 
-#	if STORAGE_DRIVER_BEDUG
+#	    if STORAGE_DRIVER_BEDUG
 		printTagLog(TAG, "Copy %lu address start", address);
-#	endif
+#	    endif
 
 	} else {
 
-#endif
+#   endif
 
 		status = eeprom_read(address, data, len);
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
 		printTagLog(TAG, "Read %lu address start", address);
-#endif
+#   endif
 
-#if STORAGE_DRIVER_USE_BUFFER
+#   if STORAGE_DRIVER_USE_BUFFER
 
 	}
 
-#endif
+#   endif
 	if (hasError && !timer.wait()) {
 		set_status(MEMORY_READ_FAULT);
 	}
@@ -72,11 +77,11 @@ StorageStatus StorageDriver::read(const uint32_t address, uint8_t *data, const u
 		hasError = true;
 		timer.start();
 	}
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
     if (status != EEPROM_OK) {
 		printTagLog(TAG, "Read %lu address error=%u", address, status);
     }
-#endif
+#   endif
     if (status == EEPROM_ERROR_BUSY) {
         return STORAGE_BUSY;
     }
@@ -87,7 +92,7 @@ StorageStatus StorageDriver::read(const uint32_t address, uint8_t *data, const u
         return STORAGE_ERROR;
     }
 
-#if STORAGE_DRIVER_USE_BUFFER
+#   if STORAGE_DRIVER_USE_BUFFER
 
     if (lastAddress != address && len == STORAGE_PAGE_SIZE) {
     	memcpy(bufferPage, data, STORAGE_PAGE_SIZE);
@@ -95,49 +100,49 @@ StorageStatus StorageDriver::read(const uint32_t address, uint8_t *data, const u
     	hasBuffer = true;
     }
 
-#endif
+#   endif
 
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
 	printTagLog(TAG, "Read %lu address success", address);
-#endif
+#   endif
 
 	hasError = false;
 	reset_status(MEMORY_READ_FAULT);
     return STORAGE_OK;
-#else
+#elif defined(GSYSTEM_FLASH_MODE)
 	if (is_error(POWER_ERROR) || is_status(MEMORY_ERROR)) {
 
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
 		printTagLog(TAG, "Error power", address);
-#endif
+#   endif
 
 		return STORAGE_ERROR;
 	}
 	flash_status_t status = FLASH_OK;
 
-#if STORAGE_DRIVER_USE_BUFFER
+#   if STORAGE_DRIVER_USE_BUFFER
 
 	if (hasBuffer && lastAddress == address && len == STORAGE_PAGE_SIZE) {
 		memcpy(data, bufferPage, len);
 
-#	if STORAGE_DRIVER_BEDUG
+#	    if STORAGE_DRIVER_BEDUG
 		printTagLog(TAG, "Copy %lu address start", address);
-#	endif
+#	    endif
 
 	} else {
 
-#endif
+#   endif
 
 		status = flash_w25qxx_read(address, data, len);
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
 		printTagLog(TAG, "Read %lu address start", address);
-#endif
+#   endif
 
-#if STORAGE_DRIVER_USE_BUFFER
+#   if STORAGE_DRIVER_USE_BUFFER
 
 	}
 
-#endif
+#   endif
 	if (hasError && !timer.wait()) {
 		set_status(MEMORY_READ_FAULT);
 	}
@@ -145,11 +150,11 @@ StorageStatus StorageDriver::read(const uint32_t address, uint8_t *data, const u
 		hasError = true;
 		timer.start();
 	}
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
     if (status != FLASH_OK) {
 		printTagLog(TAG, "Read %lu address error=%u", address, status);
     }
-#endif
+#   endif
     if (status == FLASH_BUSY) {
         return STORAGE_BUSY;
     }
@@ -160,7 +165,7 @@ StorageStatus StorageDriver::read(const uint32_t address, uint8_t *data, const u
         return STORAGE_ERROR;
     }
 
-#if STORAGE_DRIVER_USE_BUFFER
+#   if STORAGE_DRIVER_USE_BUFFER
 
     if (lastAddress != address && len == STORAGE_PAGE_SIZE) {
     	memcpy(bufferPage, data, STORAGE_PAGE_SIZE);
@@ -168,11 +173,11 @@ StorageStatus StorageDriver::read(const uint32_t address, uint8_t *data, const u
     	hasBuffer = true;
     }
 
-#endif
+#   endif
 
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
 	printTagLog(TAG, "Read %lu address success", address);
-#endif
+#   endif
 
 	hasError = false;
 	reset_status(MEMORY_READ_FAULT);
@@ -181,29 +186,29 @@ StorageStatus StorageDriver::read(const uint32_t address, uint8_t *data, const u
 }
 
 StorageStatus StorageDriver::write(const uint32_t address, const uint8_t *data, const uint32_t len) {
-#ifdef EEPROM_MODE
+#ifdef GSYSTEM_EEPROM_MODE
 	if (is_error(POWER_ERROR) || is_status(MEMORY_ERROR)) {
 
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
 		printTagLog(TAG, "Error power");
-#endif
+#   endif
 
 		return STORAGE_ERROR;
 	}
 
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
 	printTagLog(TAG, "Write %lu address start", address);
-#endif
+#   endif
 
 	eeprom_status_t status = eeprom_write(address, data, len);
 
-#if STORAGE_DRIVER_USE_BUFFER
+#   if STORAGE_DRIVER_USE_BUFFER
 
 	if (lastAddress == address) {
 		hasBuffer = false;
 	}
 
-#endif
+#   endif
 
 	if (hasError && !timer.wait()) {
     	set_status(MEMORY_WRITE_FAULT);
@@ -212,11 +217,11 @@ StorageStatus StorageDriver::write(const uint32_t address, const uint8_t *data, 
 		hasError = true;
 		timer.start();
 	}
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
     if (status != EEPROM_OK) {
 		printTagLog(TAG, "Write %lu address error=%u", address, status);
     }
-#endif
+#   endif
     if (status == EEPROM_ERROR_BUSY) {
         return STORAGE_BUSY;
     }
@@ -227,36 +232,36 @@ StorageStatus StorageDriver::write(const uint32_t address, const uint8_t *data, 
         return STORAGE_ERROR;
     }
 
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
 	printTagLog(TAG, "Write %lu address success", address);
-#endif
+#   endif
 
 	hasError = false;
 	reset_status(MEMORY_WRITE_FAULT);
     return STORAGE_OK;
-#else
+#elif defined(GSYSTEM_FLASH_MODE)
 	if (is_error(POWER_ERROR) || is_status(MEMORY_ERROR)) {
 
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
 		printTagLog(TAG, "Error power", address);
-#endif
+#   endif
 
 		return STORAGE_ERROR;
 	}
 
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
 	printTagLog(TAG, "Write %lu address start", address);
-#endif
+#   endif
 
 	flash_status_t status = flash_w25qxx_write(address, data, len);
 
-#if STORAGE_DRIVER_USE_BUFFER
+#   if STORAGE_DRIVER_USE_BUFFER
 
 	if (lastAddress == address) {
 		hasBuffer = false;
 	}
 
-#endif
+#   endif
 
 	if (hasError && !timer.wait()) {
     	set_status(MEMORY_WRITE_FAULT);
@@ -265,11 +270,11 @@ StorageStatus StorageDriver::write(const uint32_t address, const uint8_t *data, 
 		hasError = true;
 		timer.start();
 	}
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
     if (status != FLASH_OK) {
 		printTagLog(TAG, "Write %lu address error=%u", address, status);
     }
-#endif
+#   endif
     if (status == FLASH_BUSY) {
         return STORAGE_BUSY;
     }
@@ -280,9 +285,9 @@ StorageStatus StorageDriver::write(const uint32_t address, const uint8_t *data, 
         return STORAGE_ERROR;
     }
 
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
 	printTagLog(TAG, "Write %lu address success", address);
-#endif
+#   endif
 
 	hasError = false;
 	reset_status(MEMORY_WRITE_FAULT);
@@ -290,28 +295,28 @@ StorageStatus StorageDriver::write(const uint32_t address, const uint8_t *data, 
 #endif
 }
 
-#ifdef EEPROM_MODE
+#ifdef GSYSTEM_EEPROM_MODE
 StorageStatus StorageDriver::erase(const uint32_t*, const uint32_t)
 #else
 StorageStatus StorageDriver::erase(const uint32_t* addresses, const uint32_t count)
 #endif
 {
-#ifdef EEPROM_MODE
+#ifdef GSYSTEM_EEPROM_MODE
 	return STORAGE_OK;
 #else
 
 	if (is_error(POWER_ERROR) || is_status(MEMORY_ERROR)) {
 
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
 		printTagLog(TAG, "Error power", address);
-#endif
+#   endif
 
 		return STORAGE_ERROR;
 	}
 
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
 	printTagLog(TAG, "Erase addresses start");
-#endif
+#   endif
 
 	flash_status_t status = flash_w25qxx_erase_addresses(addresses, count);
 
@@ -322,11 +327,11 @@ StorageStatus StorageDriver::erase(const uint32_t* addresses, const uint32_t cou
 		hasError = true;
 		timer.start();
 	}
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
 	if (status != FLASH_OK) {
 		printTagLog(TAG, "Erase addresses error=%u", status);
 	}
-#endif
+#   endif
 	if (status == FLASH_BUSY) {
 		return STORAGE_BUSY;
 	}
@@ -337,9 +342,9 @@ StorageStatus StorageDriver::erase(const uint32_t* addresses, const uint32_t cou
 		return STORAGE_ERROR;
 	}
 
-#if STORAGE_DRIVER_BEDUG
+#   if STORAGE_DRIVER_BEDUG
 	printTagLog(TAG, "Erase addresses success");
-#endif
+#   endif
 
 	hasError = false;
 	reset_status(MEMORY_WRITE_FAULT);

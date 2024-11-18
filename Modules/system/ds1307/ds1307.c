@@ -5,7 +5,7 @@
 #include "stm32f1xx_hal.h"
 
 
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 
 
 /**

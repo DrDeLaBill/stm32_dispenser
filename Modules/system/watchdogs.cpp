@@ -14,22 +14,24 @@
 #include "StorageDriver.h"
 
 
-#define WATCHDOG_BEDUG
-#define SYSTEM_FLASH_MODE
-
-#define SYSTEM_ADC_DELAY_MS ((uint32_t)100)
+#ifndef GSYSTEM_ADC_W
+#   define SYSTEM_ADC_DELAY_MS ((uint32_t)100)
+#endif
 
 
 static const char TAG[] = "SYS";
 
+#ifndef GSYSTEM_NO_ADC_W
 static util_old_timer_t adc_timer = {};
 static bool adc_started = false;
+#endif
 
+#ifndef GSYSTEM_NO_MEMORY_W
 StorageDriver storageDriver;
 StorageAT storage(
 #if defined(SYSTEM_EEPROM_MDE)
 	EEPROM_PAGES_COUNT
-#elif defined(SYSTEM_FLASH_MODE)
+#elif defined(GSYSTEM_FLASH_MODE)
 	0,
 #else
 #   error "Memory mode is not selected"
@@ -38,14 +40,16 @@ StorageAT storage(
 	&storageDriver,
 #if defined(SYSTEM_EEPROM_MDE)
 	EEPROM_PAGE_SIZE
-#elif defined(SYSTEM_FLASH_MODE)
+#elif defined(GSYSTEM_FLASH_MODE)
 	FLASH_W25_SECTOR_SIZE
 #else
 	0
 #endif
 );
+#endif
 
 
+#ifndef GSYSTEM_NO_SYS_TICK_W
 extern "C" void sys_clock_watchdog_check()
 {
 	if (!is_error(SYS_TICK_ERROR) && !is_status(SYS_TICK_FAULT)) {
@@ -54,7 +58,9 @@ extern "C" void sys_clock_watchdog_check()
 
 	system_sys_tick_reanimation();
 }
+#endif
 
+#ifndef GSYSTEM_NO_RAM_W
 extern "C" void ram_watchdog_check()
 {
 	static const unsigned STACK_PERCENT_MIN = 5;
@@ -91,7 +97,7 @@ extern "C" void ram_watchdog_check()
 		(uint32_t)last_counter,
 		(uint32_t)__abs_dif(&_sdata, &_estack)
 	);
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 	if (freeRamBytes && __abs_dif(lastFree, freeRamBytes)) {
 		printTagLog(TAG, "-----ATTENTION! INDIRECT DATA BEGIN:-----");
 		printTagLog(TAG, "RAM:              [0x%08X->0x%08X]", (unsigned)&_sdata, (unsigned)&_estack);
@@ -108,7 +114,7 @@ extern "C" void ram_watchdog_check()
 	if (freeRamBytes && lastFree && heap_end < stack_end && freePercent > STACK_PERCENT_MIN) {
 		reset_error(STACK_ERROR);
 	} else {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 		BEDUG_ASSERT(
 			is_error(STACK_ERROR),
 			"STACK OVERFLOW IS POSSIBLE or the function STACK_WATCHDOG_FILL_RAM was not used on startup"
@@ -117,7 +123,9 @@ extern "C" void ram_watchdog_check()
 		set_error(STACK_ERROR);
 	}
 }
+#endif
 
+#ifndef GSYSTEM_NO_RTC_W
 extern "C" void rtc_watchdog_check()
 {
 	static bool tested = false;
@@ -146,101 +154,101 @@ extern "C" void rtc_watchdog_check()
 	clock_date_t readDate = {0,0,0,0};
 	clock_time_t readTime = {0,0,0};
 
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 	printPretty("Get date test: ");
 #endif
 	if (!get_clock_rtc_date(&readDate)) {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 		gprint("   error\n");
 #endif
 		set_error(RTC_ERROR);
 		return;
 	}
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 	gprint("   OK\n");
 	printPretty("Get time test: ");
 #endif
 	if (!get_clock_rtc_time(&readTime)) {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 		gprint("   error\n");
 #endif
 		set_error(RTC_ERROR);
 		return;
 	}
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 	gprint("   OK\n");
 	printPretty("Save date test: ");
 #endif
 	if (!save_clock_date(&readDate)) {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 		gprint("  error\n");
 #endif
 		set_error(RTC_ERROR);
 		return;
 	}
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 	gprint("  OK\n");
 	printPretty("Save time test: ");
 #endif
 	if (!save_clock_time(&readTime)) {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 		gprint("  error\n");
 #endif
 		set_error(RTC_ERROR);
 		return;
 	}
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 	gprint("  OK\n");
 #endif
 
 
 	clock_date_t checkDate = {0,0,0,0};
 	clock_time_t checkTime = {0,0,0};
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 	printPretty("Check date test: ");
 #endif
 	if (!get_clock_rtc_date(&checkDate)) {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 		gprint(" error\n");
 #endif
 		set_error(RTC_ERROR);
 		return;
 	}
 	if (memcmp((void*)&readDate, (void*)&checkDate, sizeof(readDate))) {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 		gprint(" error\n");
 #endif
 		set_error(RTC_ERROR);
 		return;
 	}
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 	gprint(" OK\n");
 	printPretty("Check time test: ");
 #endif
 	if (!get_clock_rtc_time(&checkTime)) {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 		gprint(" error\n");
 #endif
 		set_error(RTC_ERROR);
 		return;
 	}
 	if (!is_same_time(&readTime, &checkTime)) {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 		gprint(" error\n");
 #endif
 		set_error(RTC_ERROR);
 		return;
 	}
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 	gprint(" OK\n");
 #endif
 
 
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 	printPretty("Weekday test\n");
 #endif
 	const clock_date_t dates[] = {
-#if defined(SYSTEM_DS1307_CLOCK)
+#if defined(GSYSTEM_DS1307_CLOCK)
 		{0, 01, 01, 00},
 		{0, 01, 02, 00},
 		{0, 04, 27, 24},
@@ -300,7 +308,7 @@ extern "C" void rtc_watchdog_check()
 	};
 
 	for (unsigned i = 0; i < __arr_len(seconds); i++) {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 		printPretty("[%02u]: ", i);
 #endif
 
@@ -308,18 +316,18 @@ extern "C" void rtc_watchdog_check()
 		clock_time_t tmpTime = {0,0,0};
 		get_clock_seconds_to_datetime(seconds[i], &tmpDate, &tmpTime);
 		if (!is_same_date(&tmpDate, &dates[i])
-#if !defined(SYSTEM_DS1307_CLOCK)
+#if !defined(GSYSTEM_DS1307_CLOCK)
 			&& tmpDate.WeekDay == dates[i].WeekDay
 #endif
 		) {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 			gprint("            error\n");
 #endif
 			set_error(RTC_ERROR);
 			return;
 		}
 		if (!is_same_time(&tmpTime, &times[i])) {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 			gprint("            error\n");
 #endif
 			set_error(RTC_ERROR);
@@ -328,14 +336,14 @@ extern "C" void rtc_watchdog_check()
 
 		uint64_t tmpSeconds = get_clock_datetime_to_seconds(&dates[i], &times[i]);
 		if (tmpSeconds != seconds[i]) {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 			gprint("            error\n");
 #endif
 			set_error(RTC_ERROR);
 			return;
 		}
 
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 		gprint("            OK\n");
 #endif
 	}
@@ -344,12 +352,13 @@ extern "C" void rtc_watchdog_check()
 	tested = true;
 
 
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 	printTagLog(TAG, "RTC testing done");
 #endif
 }
+#endif
 
-
+#ifndef GSYSTEM_NO_ADC_W
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
 	(void)hadc;
@@ -372,15 +381,17 @@ extern "C" void adc_watchdog_check()
 	}
 
 	extern ADC_HandleTypeDef hadc1;
-	extern uint32_t SYSTEM_ADC_VOLTAGE[SYSTEM_ADC_VOLTAGE_COUNT];
+	extern uint32_t SYSTEM_ADC_VOLTAGE[GSYSTEM_ADC_VOLTAGE_COUNT];
 #ifdef STM32F1
 	HAL_ADCEx_Calibration_Start(&hadc1);
 #endif
-	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)SYSTEM_ADC_VOLTAGE, SYSTEM_ADC_VOLTAGE_COUNT);
+	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)SYSTEM_ADC_VOLTAGE, GSYSTEM_ADC_VOLTAGE_COUNT);
 
 	adc_started = true;
 }
+#endif
 
+#ifndef GSYSTEM_NO_MEMORY_W
 extern "C" void memory_watchdog_check()
 {
 	static const uint32_t TIMEOUT_MS = 15000;
@@ -392,22 +403,22 @@ extern "C" void memory_watchdog_check()
 	static bool timerStarted = false;
 
 	uint8_t data = 0;
-#ifdef EEPROM_MODE
+#ifdef GSYSTEM_EEPROM_MODE
 	eeprom_status_t status = EEPROM_OK;
 #else
 	flash_status_t status = FLASH_OK;
 #endif
 
-#ifndef EEPROM_MODE
+#ifndef GSYSTEM_EEPROM_MODE
 	if (!is_status(MEMORY_INITIALIZED)) {
 		if (flash_w25qxx_init() == FLASH_OK) {
 			set_status(MEMORY_INITIALIZED);
 			storage.setPagesCount(flash_w25qxx_get_pages_count());
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 			printTagLog(TAG, "flash init success (%lu pages)", flash_w25qxx_get_pages_count());
 #endif
 		} else {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 			printTagLog(TAG, "flash init error");
 #endif
 		}
@@ -419,7 +430,7 @@ extern "C" void memory_watchdog_check()
 		is_status(MEMORY_WRITE_FAULT) ||
 		is_error(MEMORY_ERROR)
 	) {
-#ifdef SYSTEM_EEPROM_MODE
+#ifdef GSYSTEM_EEPROM_MODE
 		system_reset_i2c_errata();
 
 		uint32_t address = static_cast<uint32_t>(rand()) % eeprom_get_size();
@@ -438,7 +449,7 @@ extern "C" void memory_watchdog_check()
 		} else {
 			errors++;
 		}
-#elif defined(SYSTEM_FLASH_MODE)
+#elif defined(GSYSTEM_FLASH_MODE)
 		if (is_status(MEMORY_INITIALIZED) && flash_w25qxx_init() != FLASH_OK) {
 			reset_status(MEMORY_INITIALIZED);
 		}
@@ -473,7 +484,9 @@ extern "C" void memory_watchdog_check()
 		system_error_handler(MEMORY_ERROR);
 	}
 }
+#endif
 
+#if !defined(GSYSTEM_NO_POWER_W) && !defined(GSYSTEM_NO_ADC_W)
 extern "C" void power_watchdog_check()
 {
 	uint32_t voltage = get_system_power();
@@ -484,7 +497,9 @@ extern "C" void power_watchdog_check()
 		set_error(POWER_ERROR);
 	}
 }
+#endif
 
+#ifndef GSYSTEM_NO_RESTART_W
 extern "C" void restart_watchdog_check()
 {
 	static bool flagsCleared = false;
@@ -496,7 +511,7 @@ extern "C" void restart_watchdog_check()
 	bool flag = false;
 	// IWDG check reboot
 	if (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST)) {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 		printTagLog(TAG, "IWDG just went off");
 #endif
 		flag = true;
@@ -504,14 +519,14 @@ extern "C" void restart_watchdog_check()
 
 	// WWDG check reboot
 	if (__HAL_RCC_GET_FLAG(RCC_FLAG_WWDGRST)) {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 		printTagLog(TAG, "WWDG just went off");
 #endif
 		flag = true;
 	}
 
 	if (__HAL_RCC_GET_FLAG(RCC_FLAG_SFTRST)) {
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 		printTagLog(TAG, "SOFT RESET");
 #endif
 		flag = true;
@@ -519,10 +534,11 @@ extern "C" void restart_watchdog_check()
 
 	if (flag) {
 		__HAL_RCC_CLEAR_RESET_FLAGS();
-#ifdef WATCHDOG_BEDUG
+#ifdef SYSTEM_BEDUG
 		printTagLog(TAG, "DEVICE HAS BEEN REBOOTED");
 #endif
 		system_reset_i2c_errata();
 		HAL_Delay(2500);
 	}
 }
+#endif
