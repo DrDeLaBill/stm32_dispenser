@@ -2,7 +2,6 @@
 
 #include "pump.h"
 
-#include <clock.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
@@ -10,9 +9,10 @@
 #include "glog.h"
 #include "soul.h"
 #include "main.h"
+#include "clock.h"
 #include "level.h"
 #include "gutils.h"
-#include "system.h"
+#include "gsystem.h"
 #include "fsm_gc.h"
 #include "settings.h"
 #include "pressure.h"

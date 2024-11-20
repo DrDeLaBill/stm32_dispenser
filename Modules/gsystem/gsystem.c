@@ -1,6 +1,6 @@
 /* Copyright © 2024 Georgy E. All rights reserved. */
 
-#include "system.h"
+#include "gsystem.h"
 
 #include <stdbool.h>
 
@@ -15,7 +15,6 @@
 
 #define SYSTEM_WATCHDOG_MIN_DELAY_MS (20)
 
-#define SYSTEM_BKUP_STATUS_TYPE uint32_t
 #if defined(GSYSTEM_DS1307_CLOCK)
 #   define SYSTEM_BKUP_SIZE (DS1307_REG_RAM_END - DS1307_REG_RAM - sizeof(SYSTEM_BKUP_STATUS_TYPE))
 #elif !defined(GSYSTEM_NO_RTC_W)
@@ -40,6 +39,10 @@ static bool system_hsi_initialized = false;
 #endif
 static util_old_timer_t err_timer = {0};
 
+#if defined(DEBUG)
+static unsigned kFLOPScounter = 0;
+#endif
+
 #ifndef GSYSTEM_NO_ADC_W
 uint16_t SYSTEM_ADC_VOLTAGE[GSYSTEM_ADC_VOLTAGE_COUNT] = {0};
 #endif
@@ -58,7 +61,7 @@ typedef struct _watchdogs_t {
 } watchdogs_t;
 
 
-#ifndef GSYSTEM_NO_RESTART_W
+#if !defined(GSYSTEM_NO_RESTART_W) || !defined(GSYSTEM_NO_RTC_W)
 extern void restart_watchdog_check();
 #endif
 #ifndef GSYSTEM_NO_SYS_TICK_W
@@ -81,7 +84,7 @@ extern void memory_watchdog_check();
 #endif
 watchdogs_t watchdogs[] = {
 	{_system_watchdog_check,   SYSTEM_WATCHDOG_MIN_DELAY_MS, {0,0}, HARDWARE_WATCHDOG},
-#ifndef GSYSTEM_NO_RESTART_W
+#if !defined(GSYSTEM_NO_RESTART_W) || !defined(GSYSTEM_NO_RTC_W)
 	{restart_watchdog_check,   SECOND_MS / 10,               {0,0}, HARDWARE_WATCHDOG},
 #endif
 #ifndef GSYSTEM_NO_SYS_TICK_W
@@ -189,27 +192,6 @@ void system_post_load(void)
 		);
 	}
 
-#ifndef GSYSTEM_NO_RTC_W
-	clock_begin();
-	SYSTEM_BKUP_STATUS_TYPE status = 0;
-	for (uint8_t i = 0; i < sizeof(status); i++) {
-		uint8_t data = 0;
-		if (!get_clock_ram(i, &data)) {
-			status = 0;
-			break;
-		}
-		((uint8_t*)&status)[i] = data;
-	}
-	set_last_error((SOUL_STATUS)status);
-	set_clock_ram(0, 0);
-#endif
-
-#if SYSTEM_BEDUG
-	if (get_last_error()) {
-		printTagLog(SYSTEM_TAG, "Last reload error: %s", get_status_name(get_last_error()));
-	}
-#endif
-
 #if SYSTEM_BEDUG
 	printTagLog(SYSTEM_TAG, "System loaded");
 #endif
@@ -217,13 +199,11 @@ void system_post_load(void)
 
 void system_tick()
 {
-	static util_old_timer_t timer = {0,0};
 	static unsigned index = 0;
 
-	if (!is_status(SYS_TICK_FAULT) && util_old_timer_wait(&timer)) {
-		return;
-	}
-	util_old_timer_start(&timer, SYSTEM_WATCHDOG_MIN_DELAY_MS);
+#if defined(DEBUG)
+	kFLOPScounter++;
+#endif
 
 	if (index >= __arr_len(watchdogs)) {
 		index = 0;
@@ -484,9 +464,25 @@ void system_reset_i2c_errata(void)
 
 	HAL_I2C_DeInit(&SYSTEM_I2C);
 
-	GPIO_TypeDef* I2C_PORT = GPIOB;
-	uint16_t I2C_SDA_Pin = GPIO_PIN_7;
-	uint16_t I2C_SCL_Pin = GPIO_PIN_6;
+	GPIO_TypeDef* I2C_PORT = NULL;
+	uint16_t I2C_SDA_Pin   = 0;
+	uint16_t I2C_SCL_Pin   = 0;
+    if (SYSTEM_I2C.Instance == I2C1) {
+    	I2C_PORT    = GPIOB;
+    	I2C_SDA_Pin = GPIO_PIN_7;
+    	I2C_SCL_Pin = GPIO_PIN_6;
+    } else if (SYSTEM_I2C.Instance == I2C2) {
+    	I2C_PORT    = GPIOB;
+    	I2C_SDA_Pin = GPIO_PIN_11;
+    	I2C_SCL_Pin = GPIO_PIN_10;
+    }
+
+    if (!I2C_PORT) {
+#if defined(DEBUG) || defined(GBEDUG_FORCE)
+    	printTagLog(SYSTEM_TAG, "System i2c has not selected");
+#endif
+		system_error_handler(I2C_ERROR);
+    }
 
 	GPIO_InitTypeDef GPIO_InitStruct = {0};
 	GPIO_InitStruct.Pin   = I2C_SCL_Pin | I2C_SCL_Pin;
@@ -529,7 +525,7 @@ void system_reset_i2c_errata(void)
 	for (unsigned i = 0; i < __arr_len(reseter); i++) {
 		HAL_GPIO_WritePin(I2C_PORT, reseter[i].pin, reseter[i].stat);
 		util_old_timer_start(&timer, TIMEOUT_MS);
-		while(reseter[i].stat != HAL_GPIO_ReadPin(I2C_PORT, reseter[i].pin)) {
+		while (reseter[i].stat != HAL_GPIO_ReadPin(I2C_PORT, reseter[i].pin)) {
 			if (!util_old_timer_wait(&timer)) {
 				system_error_handler(I2C_ERROR);
 			}
@@ -731,7 +727,6 @@ void _system_error_timer_disable(void)
 void _system_watchdog_check(void)
 {
 #ifdef DEBUG
-	static unsigned kFLOPScounter = 0;
 	static util_old_timer_t kFLOPSTimer = {0,(10 * SECOND_MS)};
 #endif
 
@@ -745,7 +740,6 @@ void _system_watchdog_check(void)
 	}
 
 #ifdef DEBUG
-	kFLOPScounter++;
 	if (!util_old_timer_wait(&kFLOPSTimer)) {
 		printTagLog(
 			SYSTEM_TAG,

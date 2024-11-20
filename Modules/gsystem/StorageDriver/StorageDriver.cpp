@@ -2,6 +2,8 @@
 
 #include "StorageDriver.h"
 
+#ifndef GSYSTEM_NO_MEMORY_W
+
 #include "glog.h"
 #include "soul.h"
 #include "bmacro.h"
@@ -9,14 +11,11 @@
 #include "StorageType.h"
 
 #ifdef GSYSTEM_EEPROM_MODE
-#   include "at24cm01.h"
+#    include "at24cm01.h"
+#elif defined(GSYSTEM_FLASH_MODE)
+#    include "w25qxx.h"
 #else
-#   include "w25qxx.h"
-#endif
-
-
-#if !(defined(GSYSTEM_EEPROM_MODE) || defined(GSYSTEM_FLASH_MODE))
-#   warning "Storage driver mode has not selected"
+#    warning "Storage driver mode has not selected"
 #endif
 
 
@@ -182,6 +181,11 @@ StorageStatus StorageDriver::read(const uint32_t address, uint8_t *data, const u
 	hasError = false;
 	reset_status(MEMORY_READ_FAULT);
     return STORAGE_OK;
+#else
+	(void)address;
+	(void)data;
+	(void)len;
+    return STORAGE_ERROR;
 #endif
 }
 
@@ -292,18 +296,21 @@ StorageStatus StorageDriver::write(const uint32_t address, const uint8_t *data, 
 	hasError = false;
 	reset_status(MEMORY_WRITE_FAULT);
     return STORAGE_OK;
+#else
+	(void)address;
+	(void)data;
+	(void)len;
+    return STORAGE_ERROR;
 #endif
 }
 
-#ifdef GSYSTEM_EEPROM_MODE
-StorageStatus StorageDriver::erase(const uint32_t*, const uint32_t)
-#else
 StorageStatus StorageDriver::erase(const uint32_t* addresses, const uint32_t count)
-#endif
 {
-#ifdef GSYSTEM_EEPROM_MODE
+#if defined(GSYSTEM_EEPROM_MODE)
+	(void)addresses;
+	(void)count;
 	return STORAGE_OK;
-#else
+#elif defined(GSYSTEM_FLASH_MODE)
 
 	if (is_error(POWER_ERROR) || is_status(MEMORY_ERROR)) {
 
@@ -349,5 +356,11 @@ StorageStatus StorageDriver::erase(const uint32_t* addresses, const uint32_t cou
 	hasError = false;
 	reset_status(MEMORY_WRITE_FAULT);
 	return STORAGE_OK;
+#else
+	(void)addresses;
+	(void)count;
+    return STORAGE_ERROR;
 #endif
 }
+
+#endif

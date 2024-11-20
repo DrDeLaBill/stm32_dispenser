@@ -4,6 +4,9 @@
 #define _FLASH_STORAGE_H_
 
 
+#ifdef GSYSTEM_FLASH_MODE
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -87,6 +90,9 @@ uint32_t flash_w25qxx_get_block_size();
 
 #ifdef __cplusplus
 }
+#endif
+
+
 #endif
 
 

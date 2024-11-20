@@ -23,7 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "soul.h"
-#include "system.h"
+#include "gsystem.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/

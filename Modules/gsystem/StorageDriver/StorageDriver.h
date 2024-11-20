@@ -1,7 +1,9 @@
 /* Copyright © 2023 Georgy E. All rights reserved. */
 
-#pragma once
+#ifndef _STORAGE_DRIVER_H_
+#define _STORAGE_DRIVER_H_
 
+#ifndef GSYSTEM_NO_MEMORY_W
 
 #include <stdint.h>
 
@@ -35,3 +37,7 @@ public:
     StorageStatus write(const uint32_t address, const uint8_t *data, const uint32_t len) override;
     StorageStatus erase(const uint32_t*, const uint32_t) override;
 };
+
+#endif
+
+#endif

@@ -5,7 +5,7 @@
 #include "main.h"
 #include "soul.h"
 #include "gutils.h"
-#include "system.h"
+#include "gsystem.h"
 #include "settings.h"
 
 

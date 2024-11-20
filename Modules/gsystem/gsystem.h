@@ -19,7 +19,8 @@ extern "C" {
 #   define SYSTEM_BEDUG (1)
 #endif
 
-#define SYSTEM_CANARY_WORD ((uint32_t)0xBEDAC0DE)
+#define SYSTEM_CANARY_WORD      ((uint32_t)0xBEDAC0DE)
+#define SYSTEM_BKUP_STATUS_TYPE uint32_t
 
 #ifndef GSYSTEM_ADC_VOLTAGE_COUNT
 #   define GSYSTEM_ADC_VOLTAGE_COUNT (1)

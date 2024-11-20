@@ -40,7 +40,7 @@ typedef enum _DS1307_STATUS {
 #define DS1307_REG_RAM_RDY_DE	0x0E
 #define DS1307_REG_RAM   	    0x0F
 #define DS1307_REG_RAM_END      0x3F
-#define DS1307_TIMEOUT		    1000
+#define DS1307_TIMEOUT		    100
 /*----------------------------------------------------------------------------*/
 extern I2C_HandleTypeDef *_ds1307_ui2c;
 

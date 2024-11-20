@@ -10,7 +10,7 @@
 #include "pump.h"
 #include "level.h"
 #include "gutils.h"
-#include "system.h"
+#include "gsystem.h"
 #include "settings.h"
 
 
@@ -94,6 +94,8 @@ void _cmd_status()
 {
 	settings_show();
 	pump_show_status();
+	show_statuses();
+	show_errors();
 	printTagLog(TAG, "ADC1: %d, ADC2: %u", get_system_adc(0), get_system_adc(1));
 }
 

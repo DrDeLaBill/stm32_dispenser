@@ -14,7 +14,7 @@
 #include "clock.h"
 #include "fsm_gc.h"
 #include "gutils.h"
-#include "system.h"
+#include "gsystem.h"
 #include "settings.h"
 #include "pressure.h"
 #include "sim_module.h"
@@ -222,6 +222,9 @@ bool _update_time(char* data)
 	date.Date = (uint8_t)atoi(data_ptr);
 
 	if (!save_clock_date(&date)) {
+#if LOG_BEDUG
+		printTagLog(TAG, "unable to save date");
+#endif
 		return false;
 	}
 
@@ -251,6 +254,10 @@ bool _update_time(char* data)
 		return true;
 	}
 
+#if LOG_BEDUG
+	printTagLog(TAG, "unable to save time");
+#endif
+
 	return false;
 }
 
@@ -278,7 +285,9 @@ void _load_rtc_ram_log()
 	}
 	uint64_t timestamp = get_clock_timestamp();
 
-	if (log_rtc_ram.log_time == 0xFFFFFFFFFFFFFFFF) {
+	if (!is_clock_ready()) {
+		sleep_sec = 1;
+	} else if (log_rtc_ram.log_time == 0xFFFFFFFFFFFFFFFF) {
 		sleep_sec = 1;
 	} else if (timestamp >= log_rtc_ram.log_time + sleep_sec) {
 		sleep_sec = 1;
@@ -288,7 +297,9 @@ void _load_rtc_ram_log()
 	util_old_timer_start(&log_timer, (uint32_t)(sleep_sec * SECOND_MS));
 
 	sleep_sec = BASE_SERVER_DELAY_SEC;
-	if (log_rtc_ram.base_server_time == 0xFFFFFFFFFFFFFFFF) {
+	if (!is_clock_ready()) {
+		sleep_sec = 1;
+	} else if (log_rtc_ram.base_server_time == 0xFFFFFFFFFFFFFFFF) {
 		sleep_sec = 1;
 	} else if (timestamp >= log_rtc_ram.base_server_time + BASE_SERVER_DELAY_SEC) {
 		sleep_sec = 1;
@@ -569,9 +580,9 @@ void parse_a(void)
 #endif
 	} else {
 #if LOG_BEDUG
-		printTagLog(TAG, "unable to parse response (unable to update time) - [%s]", var_ptr);
+		printTagLog(TAG, "unable to update time - [\n%s]", data_ptr);
 #endif
-		return;
+		set_error(RTC_ERROR);
 	}
 
 	// Parse configuration:

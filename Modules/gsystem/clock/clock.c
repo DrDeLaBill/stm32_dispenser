@@ -43,9 +43,10 @@ uint8_t _get_days_in_month(uint16_t year, Months month);
 
 void clock_begin()
 {
-	clock_started = true;
 #if defined(GSYSTEM_DS1307_CLOCK)
-	DS1307_Init();
+	clock_started = DS1307_Init() == DS1307_OK;
+#else
+	clock_started = true;
 #endif
 }
 
@@ -162,22 +163,27 @@ uint8_t get_clock_second()
 #endif
 }
 
-bool save_clock_time(const clock_time_t* time)
+bool save_clock_time(const clock_time_t* save_time)
 {
-    if (time->Seconds >= SECONDS_PER_MINUTE ||
-		time->Minutes >= MINUTES_PER_HOUR ||
-		time->Hours   >= HOURS_PER_DAY
-	) {
-        return false;
+	clock_time_t time = {0};
+	memcpy((uint8_t*)&time, (uint8_t*)save_time, sizeof(time));
+    if (time.Seconds >= SECONDS_PER_MINUTE) {
+    	time.Seconds = 0;
+    }
+    if (time.Minutes >= MINUTES_PER_HOUR) {
+    	time.Minutes = 0;
+    }
+    if (time.Hours   >= HOURS_PER_DAY) {
+    	time.Hours   = 0;
     }
 #if defined(GSYSTEM_DS1307_CLOCK)
-	if (DS1307_SetHour(time->Hours) != DS1307_OK) {
+	if (DS1307_SetHour(time.Hours) != DS1307_OK) {
 		return false;
 	}
-	if (DS1307_SetMinute(time->Minutes) != DS1307_OK) {
+	if (DS1307_SetMinute(time.Minutes) != DS1307_OK) {
 		return false;
 	}
-	if (DS1307_SetSecond(time->Seconds) != DS1307_OK) {
+	if (DS1307_SetSecond(time.Seconds) != DS1307_OK) {
 		return false;
 	}
 
@@ -185,9 +191,9 @@ bool save_clock_time(const clock_time_t* time)
 	printTagLog(
 		TAG,
 		"clock_save_time: time=%02u:%02u:%02u",
-		time->Hours,
-		time->Minutes,
-		time->Seconds
+		time.Hours,
+		time.Minutes,
+		time.Seconds
 	);
 #   endif
 
@@ -195,9 +201,9 @@ bool save_clock_time(const clock_time_t* time)
 #else
     HAL_StatusTypeDef status = HAL_ERROR;
     RTC_TimeTypeDef tmpTime = {0};
-    tmpTime.Hours   = time->Hours;
-    tmpTime.Minutes = time->Minutes;
-    tmpTime.Seconds = time->Seconds;
+    tmpTime.Hours   = time.Hours;
+    tmpTime.Minutes = time.Minutes;
+    tmpTime.Seconds = time.Seconds;
 
 	HAL_PWR_EnableBkUpAccess();
 	status = HAL_RTC_SetTime(&hrtc, &tmpTime, RTC_FORMAT_BIN);
@@ -217,19 +223,24 @@ bool save_clock_time(const clock_time_t* time)
 #endif
 }
 
-bool save_clock_date(const clock_date_t* date)
+bool save_clock_date(const clock_date_t* save_date)
 {
-	if (date->Date > DAYS_PER_MONTH_MAX || date->Month > MONTHS_PER_YEAR) {
-		return false;
+	clock_date_t date = {0};
+	memcpy((uint8_t*)&date, (uint8_t*)save_date, sizeof(date));
+	if (date.Date > DAYS_PER_MONTH_MAX) {
+		date.Date = DAYS_PER_MONTH_MAX;
+	}
+	if (date.Month > MONTHS_PER_YEAR) {
+		date.Month = MONTHS_PER_YEAR;
 	}
 #if defined(GSYSTEM_DS1307_CLOCK)
-	if (DS1307_SetYear((uint16_t)date->Year) != DS1307_OK) {
+	if (DS1307_SetYear((uint16_t)date.Year) != DS1307_OK) {
 		return false;
 	}
-	if (DS1307_SetMonth(date->Month) != DS1307_OK) {
+	if (DS1307_SetMonth(date.Month) != DS1307_OK) {
 		return false;
 	}
-	if (DS1307_SetDate(date->Date) != DS1307_OK) {
+	if (DS1307_SetDate(date.Date) != DS1307_OK) {
 		return false;
 	}
 	return true;
@@ -250,9 +261,9 @@ bool save_clock_date(const clock_date_t* date)
 	}
 	/* calculating weekday end */
 
-	saveDate.Date  = date->Date;
-    saveDate.Month = date->Month;
-    saveDate.Year  = (uint8_t)(date->Year & 0xFF);
+	saveDate.Date  = date.Date;
+    saveDate.Month = date.Month;
+    saveDate.Year  = (uint8_t)(date.Year & 0xFF);
 	HAL_PWR_EnableBkUpAccess();
 	status = HAL_RTC_SetDate(&hrtc, &saveDate, RTC_FORMAT_BIN);
 	HAL_PWR_DisableBkUpAccess();

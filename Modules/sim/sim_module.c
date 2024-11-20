@@ -76,6 +76,7 @@ const sim_command_t start_cmds[] = {
 	{"AT+CSQ",                            "ok"},
 	{"AT+CGMR",                           "sim868"},
 	{"AT+COPS?",                          "ok"},
+	{"AT+CCLK?",                          "ok"},
 	{"AT+SAPBR=2,1",                      "ok"},
 	{"AT+SAPBR=3,1,\"CONTYPE\",\"GPRS\"", "ok"},
 	{"AT+SAPBR=3,1,\"APN\",\"internet\"", "ok"},

@@ -2,6 +2,10 @@
 
 #include "w25qxx.h"
 
+
+#ifdef GSYSTEM_FLASH_MODE
+
+
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
@@ -1283,3 +1287,6 @@ uint32_t _flash_get_storage_bytes_size()
 #endif
     return flash_info.blocks_count * flash_info.block_size;
 }
+
+
+#endif

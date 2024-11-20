@@ -14,7 +14,7 @@
 #include "glog.h"
 #include "main.h"
 #include "gutils.h"
-#include "system.h"
+#include "gsystem.h"
 #include "settings.h"
 
 
@@ -119,6 +119,13 @@ int32_t _get_liquid_liters(uint32_t adc)
 		return LEVEL_ERROR;
 	}
 
+	if (settings.tank_ADC_min <= settings.tank_ADC_max) {
+		if (print_flag) {
+			printTagLog(LIQUID_TAG, "error liquid tank: settings error - ADC=%lu, ADC_min=%lu, ADC_max=%lu", adc, settings.tank_ADC_min, settings.tank_ADC_max);
+		}
+		return LEVEL_ERROR;
+	}
+
 	uint32_t adc_range = __abs_dif(settings.tank_ADC_min, settings.tank_ADC_max);
 	uint32_t ltr_range = __abs_dif(settings.tank_ltr_max, settings.tank_ltr_min);
 	if (adc_range == 0) {
@@ -129,10 +136,10 @@ int32_t _get_liquid_liters(uint32_t adc)
 	}
 
 	uint32_t end = adc_range;
-	if (adc > settings.tank_ADC_min) {
+	if (adc + LEVEL_LATENCY > settings.tank_ADC_min) {
 		return (int32_t)settings.tank_ltr_min;
 	}
-	if (adc < settings.tank_ADC_max) {
+	if (adc < settings.tank_ADC_max + LEVEL_LATENCY) {
 		return (int32_t)settings.tank_ltr_max;
 	}
 	if (end == 0) {

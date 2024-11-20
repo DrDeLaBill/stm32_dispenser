@@ -1,6 +1,5 @@
 /* Copyright © 2023 Georgy E. All rights reserved. */
 
-#include <clock.h>
 #include "settings.h"
 
 #include <stdio.h>
@@ -8,8 +7,9 @@
 
 #include "glog.h"
 #include "main.h"
+#include "clock.h"
 #include "gutils.h"
-#include "system.h"
+#include "gsystem.h"
 #include "hal_defs.h"
 
 
