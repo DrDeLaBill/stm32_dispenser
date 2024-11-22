@@ -20,6 +20,8 @@ static soul_t soul = {
 	.statuses            = { 0 }
 };
 
+const char *SOUL_UNKNOWN_STATUS = "UNKNOWN_STATUS";
+
 
 bool _is_status(SOUL_STATUS status);
 void _set_status(SOUL_STATUS status);
@@ -48,7 +50,7 @@ bool has_errors()
 	return false;
 }
 
-bool is_error(SOUL_STATUS error)
+bool is_internal_error(SOUL_STATUS error)
 {
 	if (error > ERRORS_START && error < ERRORS_END) {
 		return _is_status(error);
@@ -56,7 +58,7 @@ bool is_error(SOUL_STATUS error)
 	return false;
 }
 
-void set_error(SOUL_STATUS error)
+void set_internal_error(SOUL_STATUS error)
 {
 	if (error > ERRORS_START && error < ERRORS_END) {
 #if defined(DEBUG) || defined(GBEDUG_FORCE)
@@ -65,6 +67,18 @@ void set_error(SOUL_STATUS error)
 		}
 #endif
 		_set_status(error);
+	}
+}
+
+void reset_internal_error(SOUL_STATUS error)
+{
+	if (error > ERRORS_START && error < ERRORS_END) {
+#if defined(DEBUG) || defined(GBEDUG_FORCE)
+		if (is_error(error)) {
+			soul.has_new_error_data = true;
+		}
+#endif
+		_reset_status(error);
 	}
 }
 
@@ -78,19 +92,7 @@ SOUL_STATUS get_first_error()
 	return 0;
 }
 
-void reset_error(SOUL_STATUS error)
-{
-	if (error > ERRORS_START && error < ERRORS_END) {
-#if defined(DEBUG) || defined(GBEDUG_FORCE)
-		if (is_error(error)) {
-			soul.has_new_error_data = true;
-		}
-#endif
-		_reset_status(error);
-	}
-}
-
-bool is_status(SOUL_STATUS status)
+bool is_internal_status(SOUL_STATUS status)
 {
 	if (status > STATUSES_START && status < STATUSES_END) {
 		return _is_status(status);
@@ -98,7 +100,7 @@ bool is_status(SOUL_STATUS status)
 	return false;
 }
 
-void set_status(SOUL_STATUS status)
+void set_internal_status(SOUL_STATUS status)
 {
 	if (status > STATUSES_START && status < STATUSES_END) {
 #if defined(DEBUG) || defined(GBEDUG_FORCE)
@@ -110,7 +112,7 @@ void set_status(SOUL_STATUS status)
 	}
 }
 
-void reset_status(SOUL_STATUS status)
+void reset_internal_status(SOUL_STATUS status)
 {
 	if (status > STATUSES_START && status < STATUSES_END) {
 #if defined(DEBUG) || defined(GBEDUG_FORCE)
@@ -151,11 +153,17 @@ void _reset_status(SOUL_STATUS status)
 	soul.statuses[status_num / BITS_IN_BYTE] &= (uint8_t)~(0x01 << (status_num % BITS_IN_BYTE));
 }
 
-#define CASE_STATUS(SOUL_ERR) case SOUL_ERR: snprintf(name, sizeof(name) - 1, "[%03u] %s", SOUL_ERR, __STR_DEF__(SOUL_ERR)); break;
+#define CASE_STATUS(SOUL_STATUS) case SOUL_STATUS:                \
+	                                 snprintf(                    \
+									     name,                    \
+									     sizeof(name) - 1,        \
+									     "[%03u] %s",             \
+									     SOUL_STATUS,             \
+									     __STR_DEF__(SOUL_STATUS) \
+									 );                           \
+									 break;
 char* get_status_name(SOUL_STATUS status)
 {
-	const char UNKNOWN_STATUS[] = "UNKNOWN_STATUS";
-
 	static char name[35] = { 0 };
 	memset(name, 0, sizeof(name));
 
@@ -205,11 +213,17 @@ char* get_status_name(SOUL_STATUS status)
 	CASE_STATUS(ERROR_HANDLER_CALLED)
 	CASE_STATUS(INTERNAL_ERROR)
 	default:
-		snprintf(name, sizeof(name) - 1, "[%03u] %s", status, UNKNOWN_STATUS);
+		snprintf(name, sizeof(name) - 1, "[%03u] %s", status, get_custom_status_name(status));
 		break;
 	}
 
 	return name;
+}
+
+__attribute__((weak)) char* get_custom_status_name(SOUL_STATUS status)
+{
+	(void)status;
+	return (char*)SOUL_UNKNOWN_STATUS;
 }
 #undef CASE_STATUS
 

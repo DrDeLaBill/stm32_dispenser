@@ -11,9 +11,9 @@
 #include <stdbool.h>
 
 #include "glog.h"
-#include "soul.h"
 #include "main.h"
 #include "gutils.h"
+#include "gsystem.h"
 #include "hal_defs.h"
 
 

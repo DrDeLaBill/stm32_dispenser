@@ -12,7 +12,7 @@ extern "C" {
 #include <stdint.h>
 
 #include "soul.h"
-#include "system_config.h"
+#include "gconfig.h"
 
 
 #ifdef DEBUG
@@ -28,7 +28,7 @@ extern "C" {
 
 void system_pre_load(void);
 void system_post_load(void);
-
+void system_registrate(void (*process) (void), uint32_t delay_ms, bool work_with_error);
 void system_tick();
 
 bool is_system_ready();

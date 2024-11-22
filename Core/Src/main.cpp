@@ -170,6 +170,14 @@ int main(void)
 	log_init();
 
 	system_post_load();
+	system_registrate(settings_update,  20,  true);
+	system_registrate(pressure_process, 200, true);
+	system_registrate(sim_process,      20,  true);
+	system_registrate(level_tick,       200, true);
+	system_registrate(pump_process,     20,  true);
+	system_registrate(log_tick,         500, true);
+	system_registrate(cmd_process,      20,  true);
+	system_registrate(out_tick,         50,  true);
 
 	HAL_Delay(100);
 
@@ -206,31 +214,9 @@ int main(void)
 
 		system_tick();
 
-		settings_update();
-
 		if (!errTimer.wait()) {
 			system_error_handler((SOUL_STATUS)get_first_error());
 		}
-
-        out_tick();
-
-		// Pressure update
-		pressure_process();
-
-        // Sim module
-        sim_process();
-
-        // Level update
-        level_tick();
-
-        // Pump
-        pump_process();
-
-        // Record & settings synchronize process
-        log_tick();
-
-        // CMD process
-        cmd_process();
 
 #ifndef DEBUG
 		HAL_IWDG_Refresh(&hiwdg);
@@ -348,6 +334,31 @@ extern "C" void system_error_loop()
 	HAL_GPIO_TogglePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
 	HAL_GPIO_TogglePin(RED_LED_GPIO_Port, RED_LED_Pin);
 }
+
+#define CASE_STATUS(SOUL_STATUS) case SOUL_STATUS:                \
+	                                 snprintf(                    \
+									     name,                    \
+									     sizeof(name) - 1,        \
+									     "%s",                    \
+									     __STR_DEF__(SOUL_STATUS) \
+									 );                           \
+									 break;
+char* get_custom_status_name(SOUL_STATUS status)
+{
+	static char name[35] = { 0 };
+	memset(name, 0, sizeof(name));
+
+	switch (status) {
+	CASE_STATUS(HAS_NEW_RECORD)
+	CASE_STATUS(NEW_RECORD_WAS_NOT_SAVED)
+	default:
+		snprintf(name, sizeof(name) - 1, "%s", get_custom_status_name(status));
+		break;
+	}
+
+	return name;
+}
+#undef CASE_STATUS
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	if (huart->Instance == SIM_MODULE_UART.Instance) {

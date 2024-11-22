@@ -7,8 +7,18 @@
 
 #include <stdint.h>
 
+#include "gconfig.h"
+
 #include "Timer.h"
 #include "StorageAT.h"
+
+#ifdef GSYSTEM_EEPROM_MODE
+#    include "at24cm01.h"
+#elif defined(GSYSTEM_FLASH_MODE)
+#    include "w25qxx.h"
+#else
+#    warning "Storage driver mode has not selected"
+#endif
 
 
 #ifdef DEBUG

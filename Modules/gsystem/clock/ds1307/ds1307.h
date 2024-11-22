@@ -9,6 +9,7 @@ extern "C"{
 
 #include <stdint.h>
 
+#include "gconfig.h"
 #include "stm32f1xx_hal.h"
 
 

@@ -12,6 +12,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "gconfig.h"
 #include "hal_defs.h"
 
 

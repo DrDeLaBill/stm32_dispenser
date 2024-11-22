@@ -22,6 +22,10 @@
 #endif
 
 
+#ifndef GSYSTEM_POCESSES_COUNT
+#   define GSYSTEM_POCESSES_COUNT (32)
+#endif
+
 #ifndef GSYSTEM_NO_RAM_W
 static void _system_start_ram_fill(void);
 #endif
@@ -107,6 +111,18 @@ watchdogs_t watchdogs[] = {
 #endif
 };
 
+
+typedef struct _process_t {
+	void (*action) (void);
+	util_old_timer_t timer;
+	uint32_t delay_ms;
+	bool work_with_error;
+} process_t;
+
+static unsigned  processes_cnt = 0;
+static process_t processes[GSYSTEM_POCESSES_COUNT] = { 0 };
+
+
 void system_pre_load(void)
 {
 #ifndef GSYSTEM_NO_RAM_W
@@ -134,6 +150,8 @@ void system_pre_load(void)
 	}
 	_system_error_timer_disable();
 #endif
+
+	memset((uint8_t*)&processes, 0, sizeof(GSYSTEM_POCESSES_COUNT));
 
 	util_old_timer_start(&err_timer, err_delay_ms);
 
@@ -197,30 +215,70 @@ void system_post_load(void)
 #endif
 }
 
+void system_registrate(void (*process) (void), uint32_t delay_ms, bool work_with_error)
+{
+	if (processes_cnt >= __arr_len(processes)) {
+		BEDUG_ASSERT(false, "GSystem processes count is out of range");
+		return;
+	}
+	processes[processes_cnt].action          = process;
+	processes[processes_cnt].delay_ms        = delay_ms;
+	processes[processes_cnt].work_with_error = work_with_error;
+	processes_cnt++;
+}
+
 void system_tick()
 {
-	static unsigned index = 0;
+	static unsigned index_w = 0;
+	static unsigned index_p = 0;
 
 #if defined(DEBUG)
 	kFLOPScounter++;
 #endif
 
-	if (index >= __arr_len(watchdogs)) {
-		index = 0;
+	static bool work_w = true;
+	if (work_w) {
+		if (!__arr_len(watchdogs)) {
+			return;
+		}
+
+		if (index_w >= __arr_len(watchdogs)) {
+			index_w = 0;
+		}
+
+		if (!is_status(SYSTEM_HARDWARE_READY) &&
+			watchdogs[index_w].type == SOFTWARE_WATCHDOG
+		) {
+			index_w = 0;
+		}
+
+		if (is_status(SYS_TICK_FAULT) || !util_old_timer_wait(&watchdogs[index_w].timer)) {
+			util_old_timer_start(&watchdogs[index_w].timer, watchdogs[index_w].delay_ms);
+			watchdogs[index_w].action();
+		}
+
+		index_w++;
+	} else {
+		if (!processes_cnt) {
+			return;
+		}
+
+		if (index_p >= processes_cnt) {
+			index_p = 0;
+		}
+
+		if (!util_old_timer_wait(&processes[index_p].timer) &&
+			(!has_errors() || (has_errors() && processes[index_p].work_with_error)) &&
+			processes[index_p].action
+		) {
+			util_old_timer_start(&processes[index_p].timer, processes[index_p].delay_ms);
+			processes[index_p].action();
+		}
+
+		index_p++;
 	}
 
-	if (!is_status(SYSTEM_HARDWARE_READY) &&
-		watchdogs[index].type == SOFTWARE_WATCHDOG
-	) {
-		index = 0;
-	}
-
-	if (is_status(SYS_TICK_FAULT) || !util_old_timer_wait(&watchdogs[index].timer)) {
-		util_old_timer_start(&watchdogs[index].timer, watchdogs[index].delay_ms);
-		watchdogs[index].action();
-	}
-
-	index++;
+	work_w = !work_w;
 }
 
 bool is_system_ready()
@@ -751,7 +809,7 @@ void _system_watchdog_check(void)
 		uint32_t power = get_system_power();
 		printTagLog(
 			SYSTEM_TAG,
-			"Power: %lu.%lu",
+			"Power: %lu.%lu V",
 			power / 10,
 			power % 10
 		);

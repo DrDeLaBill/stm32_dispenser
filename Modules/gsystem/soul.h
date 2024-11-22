@@ -122,22 +122,46 @@ typedef struct _soul_t {
 	uint8_t statuses[__div_up(SOUL_STATUSES_END - 1, BITS_IN_BYTE)];
 } soul_t;
 
+extern const char *SOUL_UNKNOWN_STATUS;
+
 
 SOUL_STATUS get_last_error();
 void set_last_error(SOUL_STATUS error);
 
 bool has_errors();
 
-bool is_error(SOUL_STATUS error);
-void set_error(SOUL_STATUS error);
-void reset_error(SOUL_STATUS error);
+bool is_internal_error(SOUL_STATUS error);
+void set_internal_error(SOUL_STATUS error);
+void reset_internal_error(SOUL_STATUS error);
 SOUL_STATUS get_first_error();
 
-bool is_status(SOUL_STATUS status);
-void set_status(SOUL_STATUS status);
-void reset_status(SOUL_STATUS status);
+#ifndef is_error
+#   define is_error(STATUS) (is_internal_error((SOUL_STATUS)STATUS))
+#endif
+#ifndef set_error
+#   define set_error(STATUS) (set_internal_error((SOUL_STATUS)STATUS))
+#endif
+#ifndef reset_error
+#   define reset_error(STATUS) (reset_internal_error((SOUL_STATUS)STATUS))
+#endif
+
+bool is_internal_status(SOUL_STATUS status);
+void set_internal_status(SOUL_STATUS status);
+void reset_internal_status(SOUL_STATUS status);
+
+#ifndef is_status
+#   define is_status(STATUS) (is_internal_status((SOUL_STATUS)STATUS))
+#endif
+#ifndef set_status
+#   define set_status(STATUS) (set_internal_status((SOUL_STATUS)STATUS))
+#endif
+#ifndef reset_status
+#   define reset_status(STATUS) (reset_internal_status((SOUL_STATUS)STATUS))
+#endif
+
 
 char* get_status_name(SOUL_STATUS status);
+char* get_custom_status_name(SOUL_STATUS status);
 #if defined(DEBUG) || defined(GBEDUG_FORCE) // TODO: add FAULTS to errors
 bool has_new_error_data();
 bool has_new_status_data();

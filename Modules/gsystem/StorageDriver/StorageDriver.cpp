@@ -10,14 +10,6 @@
 
 #include "StorageType.h"
 
-#ifdef GSYSTEM_EEPROM_MODE
-#    include "at24cm01.h"
-#elif defined(GSYSTEM_FLASH_MODE)
-#    include "w25qxx.h"
-#else
-#    warning "Storage driver mode has not selected"
-#endif
-
 
 #define ERROR_TIMEOUT_MS ((uint32_t)200)
 

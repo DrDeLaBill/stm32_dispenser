@@ -6,7 +6,6 @@
 #include "soul.h"
 #include "glog.h"
 #include "clock.h"
-#include "w25qxx.h"
 #include "gsystem.h"
 #include "hal_defs.h"
 
@@ -29,7 +28,7 @@ static bool adc_started = false;
 #ifndef GSYSTEM_NO_MEMORY_W
 StorageDriver storageDriver;
 StorageAT storage(
-#if defined(SYSTEM_EEPROM_MDE)
+#if defined(GSYSTEM_EEPROM_MDE)
 	EEPROM_PAGES_COUNT
 #elif defined(GSYSTEM_FLASH_MODE)
 	0,
@@ -38,7 +37,7 @@ StorageAT storage(
 	0,
 #endif
 	&storageDriver,
-#if defined(SYSTEM_EEPROM_MDE)
+#if defined(GSYSTEM_EEPROM_MDE)
 	EEPROM_PAGE_SIZE
 #elif defined(GSYSTEM_FLASH_MODE)
 	FLASH_W25_SECTOR_SIZE
