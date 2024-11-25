@@ -152,9 +152,6 @@ int main(void)
 
 	HAL_Delay(100);
 
-	gprint("\n\n\n");
-	printTagLog(MAIN_TAG, "The device is loading");
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -169,7 +166,6 @@ int main(void)
 
 	log_init();
 
-	system_post_load();
 	system_registrate(settings_update,  20,  true);
 	system_registrate(pressure_process, 200, true);
 	system_registrate(sim_process,      20,  true);
@@ -179,56 +175,14 @@ int main(void)
 	system_registrate(cmd_process,      20,  true);
 	system_registrate(out_tick,         50,  true);
 
-	HAL_Delay(100);
-
-	printTagLog(MAIN_TAG, "The device has been loaded\n");
-
-
-	// TODO: remove start
-#ifdef DEBUG
-	util_old_timer_t tmp_timer = {};
-#endif
-	// TODO: remove end
-
 	set_status((SOUL_STATUS)HAS_NEW_RECORD);
-	utl::Timer errTimer(150 * SECOND_MS);
-	errTimer.start();
-	while (1)
-	{
-		// TODO: remove start
-#ifdef DEBUG
-		if (!util_old_timer_wait(&tmp_timer)) {
-			util_old_timer_start(&tmp_timer, 10 * SECOND_MS);
-			printTagLog(MAIN_TAG, "ADC1: %d, ADC2: %u", get_system_adc(0), get_system_adc(1));
-		}
-#endif
-		// TODO: remove end
+	set_system_timeout(150 * SECOND_MS);
+	system_start();
 
-		if (strlen(rs485_input_chr) && !RS485Timer.wait()) {
-			printTagLog(MAIN_TAG, "RS485: %s", rs485_input_chr);
-			memset(rs485_input_chr, 0, rs485_cnt + 1);
-			rs485_cnt = 0;
-			HAL_UART_AbortReceive_IT(&RS485_UART);
-			HAL_UART_Receive_IT(&RS485_UART, (uint8_t*)&rs485_input_chr[rs485_cnt++], 1);
-		}
-
-		system_tick();
-
-		if (!errTimer.wait()) {
-			system_error_handler((SOUL_STATUS)get_first_error());
-		}
-
-#ifndef DEBUG
-		HAL_IWDG_Refresh(&hiwdg);
-#endif
-
-		if (!is_system_ready()) {
-			continue;
-		}
+	while (1) {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		errTimer.start();
 	}
   /* USER CODE END 3 */
 }
@@ -291,10 +245,35 @@ extern "C" void system_hse_config(void)
 	SystemClock_Config();
 }
 
+void system_ready_check(void)
+{
+	// TODO: remove start
+#ifdef DEBUG
+	static gtimer_t tmp_timer = {};
+	if (!gtimer_wait(&tmp_timer)) {
+		gtimer_start(&tmp_timer, 10 * SECOND_MS);
+		printTagLog(MAIN_TAG, "ADC1: %d, ADC2: %u", get_system_adc(0), get_system_adc(1));
+	}
+#endif
+	// TODO: remove end
+
+	if (strlen(rs485_input_chr) && !RS485Timer.wait()) {
+		printTagLog(MAIN_TAG, "RS485: %s", rs485_input_chr);
+		memset(rs485_input_chr, 0, rs485_cnt + 1);
+		rs485_cnt = 0;
+		HAL_UART_AbortReceive_IT(&RS485_UART);
+		HAL_UART_Receive_IT(&RS485_UART, (uint8_t*)&rs485_input_chr[rs485_cnt++], 1);
+	}
+
+#ifndef DEBUG
+	HAL_IWDG_Refresh(&hiwdg);
+#endif
+}
+
 extern "C" void system_error_loop()
 {
 	static bool initialized = false;
-	static util_old_timer_t led_timer = {};
+	static gtimer_t led_timer = {};
 
 #ifndef DEBUG
 	HAL_IWDG_Refresh(&hiwdg);
@@ -326,10 +305,10 @@ extern "C" void system_error_loop()
 
 	}
 
-	if (util_old_timer_wait(&led_timer)) {
+	if (gtimer_wait(&led_timer)) {
 		return;
 	}
-	util_old_timer_start(&led_timer, 300);
+	gtimer_start(&led_timer, 300);
 	HAL_GPIO_TogglePin(LAMP_FET_GPIO_Port, LAMP_FET_Pin);
 	HAL_GPIO_TogglePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
 	HAL_GPIO_TogglePin(RED_LED_GPIO_Port, RED_LED_Pin);

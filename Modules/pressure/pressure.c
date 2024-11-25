@@ -35,11 +35,11 @@ uint16_t _pressure_get_adc_value();
 
 void pressure_process()
 {
-	if (util_old_timer_wait(&press_measure.wait_timer)) {
+	if (gtimer_wait(&press_measure.wait_timer)) {
 		return;
 	}
 
-	util_old_timer_start(&press_measure.wait_timer, PRESS_WAIT_TIME_MS);
+	gtimer_start(&press_measure.wait_timer, PRESS_WAIT_TIME_MS);
 
 	uint8_t measure_values_len = sizeof(press_measure.measure_values) / sizeof(*press_measure.measure_values);
 

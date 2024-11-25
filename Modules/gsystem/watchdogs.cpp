@@ -21,7 +21,7 @@
 static const char TAG[] = "SYS";
 
 #ifndef GSYSTEM_NO_ADC_W
-static util_old_timer_t adc_timer = {};
+static gtimer_t adc_timer = {};
 static bool adc_started = false;
 #endif
 
@@ -130,10 +130,10 @@ extern "C" void rtc_watchdog_check()
 	static bool system_error_loaded = false;
 	static bool tested = false;
 	static bool start_timer_flag = false;
-	static util_old_timer_t timer = {};
+	static gtimer_t timer = {};
 
 	if (!start_timer_flag) {
-		util_old_timer_start(&timer, 15 * SECOND_MS);
+		gtimer_start(&timer, 15 * SECOND_MS);
 		start_timer_flag = true;
 	}
 
@@ -162,7 +162,7 @@ extern "C" void rtc_watchdog_check()
 	}
 
 	if (!is_clock_started()) {
-		if (!util_old_timer_wait(&timer)) {
+		if (!gtimer_wait(&timer)) {
 			set_error(RTC_ERROR);
 		}
 		return;
@@ -497,7 +497,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
 	(void)hadc;
 	adc_started = false;
-	util_old_timer_start(&adc_timer, SYSTEM_ADC_DELAY_MS);
+	gtimer_start(&adc_timer, SYSTEM_ADC_DELAY_MS);
 }
 
 extern "C" void adc_watchdog_check()
@@ -506,7 +506,7 @@ extern "C" void adc_watchdog_check()
 		return;
 	}
 
-	if (util_old_timer_wait(&adc_timer)) {
+	if (gtimer_wait(&adc_timer)) {
 		return;
 	}
 

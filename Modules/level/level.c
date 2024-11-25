@@ -32,7 +32,7 @@ const char* LIQUID_TAG = "LQID";
 bool started = false;
 unsigned counter = 0;
 uint32_t level_adc[100] = {0};
-util_old_timer_t timer = {0};
+gtimer_t timer = {0};
 
 
 void level_tick()
@@ -41,10 +41,10 @@ void level_tick()
 		started = true;
 		counter = 0;
 	}
-	if (util_old_timer_wait(&timer)) {
+	if (gtimer_wait(&timer)) {
 		return;
 	}
-	util_old_timer_start(&timer, 100);
+	gtimer_start(&timer, 100);
 	level_adc[counter++] = _get_cur_liquid_adc();
 }
 
@@ -95,11 +95,11 @@ uint32_t _get_cur_liquid_adc()
 
 int32_t _get_liquid_liters(uint32_t adc)
 {
-	static util_old_timer_t print_timer = { 0 };
+	static gtimer_t print_timer = { 0 };
 
 	bool print_flag = false;
-	if (!util_old_timer_wait(&print_timer)) {
-		util_old_timer_start(&print_timer, 3 * SECOND_MS);
+	if (!gtimer_wait(&print_timer)) {
+		gtimer_start(&print_timer, 3 * SECOND_MS);
 		print_flag = true;
 	}
 

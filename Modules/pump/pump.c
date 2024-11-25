@@ -44,9 +44,9 @@ static const char* TAG = "PUMP";
 static bool             settings_updated = false;
 static bool             was_enabled      = false;
 static uint32_t         need_time_ms     = 0;
-static util_old_timer_t timer            = {0};
-static util_old_timer_t wait_timer       = {0};
-static util_old_timer_t indication_timer = {0};
+static gtimer_t timer            = {0};
+static gtimer_t wait_timer       = {0};
+static gtimer_t indication_timer = {0};
 
 
 static void _init_s(void);
@@ -353,7 +353,7 @@ void _count_work_s(void)
 		pump_show_status();
 	}
 
-	if (util_old_timer_wait(&timer)) {
+	if (gtimer_wait(&timer)) {
 		return;
 	}
 
@@ -376,7 +376,7 @@ void _count_down_s(void)
 		pump_show_status();
 	}
 
-	if (util_old_timer_wait(&timer)) {
+	if (gtimer_wait(&timer)) {
 		return;
 	}
 
@@ -393,7 +393,7 @@ void _count_wait_s(void)
 		pump_show_status();
 	}
 
-	if (util_old_timer_wait(&wait_timer)) {
+	if (gtimer_wait(&wait_timer)) {
 		return;
 	}
 
@@ -417,7 +417,7 @@ void start_a(void)
 {
 	was_enabled = settings.pump_enabled;
 
-	util_old_timer_start(&timer, need_time_ms);
+	gtimer_start(&timer, need_time_ms);
 
 	HAL_GPIO_WritePin(MOT_FET_GPIO_Port, MOT_FET_Pin, GPIO_PIN_SET);
 
@@ -430,7 +430,7 @@ void down_a(void)
 {
 	was_enabled = settings.pump_enabled;
 
-	util_old_timer_start(&timer, need_time_ms);
+	gtimer_start(&timer, need_time_ms);
 
 	HAL_GPIO_WritePin(MOT_FET_GPIO_Port, MOT_FET_Pin, GPIO_PIN_RESET);
 
@@ -448,7 +448,7 @@ void wait_a(void)
 		wait_time_ms = PUMP_WORK_PERIOD - need_time_ms;
 	}
 
-	util_old_timer_start(&wait_timer, wait_time_ms);
+	gtimer_start(&wait_timer, wait_time_ms);
 
 	if (wait_time_ms > PUMP_MIN_TIME_MS) {
 		HAL_GPIO_WritePin(MOT_FET_GPIO_Port, MOT_FET_Pin, GPIO_PIN_RESET);
@@ -482,7 +482,7 @@ void save_and_down_a(void)
 
 	set_status(NEED_SAVE_SETTINGS);
 
-	util_old_timer_start(&timer, need_time_ms - res_time_ms);
+	gtimer_start(&timer, need_time_ms - res_time_ms);
 
 	HAL_GPIO_WritePin(MOT_FET_GPIO_Port, MOT_FET_Pin, GPIO_PIN_RESET);
 
@@ -513,7 +513,7 @@ void save_and_work_a(void)
 
 	set_status(NEED_SAVE_SETTINGS);
 
-	util_old_timer_start(&timer, need_time_ms - res_time_ms);
+	gtimer_start(&timer, need_time_ms - res_time_ms);
 
 	HAL_GPIO_WritePin(MOT_FET_GPIO_Port, MOT_FET_Pin, GPIO_PIN_SET);
 
@@ -589,16 +589,16 @@ void _pump_indicate_disable_state()
 {
 	HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
 
-	if (util_old_timer_wait(&indication_timer)) {
+	if (gtimer_wait(&indication_timer)) {
 		return;
 	}
 
 	GPIO_PinState state = HAL_GPIO_ReadPin(RED_LED_GPIO_Port, RED_LED_Pin);
 
 	if (state) {
-		util_old_timer_start(&indication_timer, PUMP_LED_DISABLE_STATE_OFF_TIME);
+		gtimer_start(&indication_timer, PUMP_LED_DISABLE_STATE_OFF_TIME);
 	} else {
-		util_old_timer_start(&indication_timer, PUMP_LED_DISABLE_STATE_ON_TIME);
+		gtimer_start(&indication_timer, PUMP_LED_DISABLE_STATE_ON_TIME);
 	}
 
 	state = (state == GPIO_PIN_SET) ? GPIO_PIN_RESET : GPIO_PIN_SET;
@@ -608,13 +608,13 @@ void _pump_indicate_disable_state()
 
 void _pump_indicate_work_state(uint32_t time)
 {
-	if (util_old_timer_wait(&indication_timer)) {
+	if (gtimer_wait(&indication_timer)) {
 		return;
 	}
 
 	GPIO_PinState state = HAL_GPIO_ReadPin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
 
-	util_old_timer_start(&indication_timer, time);
+	gtimer_start(&indication_timer, time);
 
 
 	HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, state);

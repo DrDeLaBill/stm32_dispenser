@@ -59,6 +59,8 @@ typedef enum _SOUK_STATUS {
 	STATUSES_END,
 
 	/* Device errors start */
+	NO_ERROR,
+
 	ERRORS_START,
 
 	RESERVED_ERROR_01,

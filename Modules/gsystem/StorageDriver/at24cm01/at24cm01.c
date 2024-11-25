@@ -41,9 +41,9 @@ eeprom_status_t eeprom_read(const uint32_t addr, uint8_t* buf, const uint32_t le
 #endif
 
     HAL_StatusTypeDef status = HAL_BUSY;
-    util_old_timer_t timer = { 0 };
-    util_old_timer_start(&timer, EEPROM_TIMER_DELAY_MS);
-    while (util_old_timer_wait(&timer)) {
+    gtimer_t timer = { 0 };
+    gtimer_start(&timer, EEPROM_TIMER_DELAY_MS);
+    while (gtimer_wait(&timer)) {
         status = HAL_I2C_IsDeviceReady(&EEPROM_I2C, dev_addr, 1, EEPROM_DELAY_MS);
 
         if (status == HAL_OK) {
@@ -99,9 +99,9 @@ eeprom_status_t eeprom_write(const uint32_t addr, const uint8_t* buf, const uint
 #endif
 
     HAL_StatusTypeDef status = HAL_BUSY;
-    util_old_timer_t timer = { 0 };
-    util_old_timer_start(&timer, EEPROM_TIMER_DELAY_MS);
-    while (util_old_timer_wait(&timer)) {
+    gtimer_t timer = { 0 };
+    gtimer_start(&timer, EEPROM_TIMER_DELAY_MS);
+    while (gtimer_wait(&timer)) {
         status = HAL_I2C_IsDeviceReady(&EEPROM_I2C, dev_addr, 1, EEPROM_DELAY_MS);
         if (status == HAL_OK) {
             break;

@@ -60,7 +60,7 @@ typedef struct _sim_state_t {
 
 	unsigned errors;
 
-	util_old_timer_t timer;
+	gtimer_t timer;
 
 	bool     is_base_server;
 	bool     http_error;
@@ -285,7 +285,7 @@ void _sim_init_s(void)
 	strncpy(sim_state.url, settings.url, sizeof(sim_state.url));
 
 	sim_state.counter = 0;
-	util_old_timer_start(&sim_state.timer, 1500);
+	gtimer_start(&sim_state.timer, 1500);
 
 	fsm_gc_push_event(&sim_fsm, &sim_success_e);
 }
@@ -294,7 +294,7 @@ void _sim_start_s(void)
 {
 	memset(sim_state.response, 0, sizeof(sim_state.response));
 	_sim_send_cmd(start_cmds[sim_state.counter].request);
-	util_old_timer_start(&sim_state.timer, SIM_DELAY_MS);
+	gtimer_start(&sim_state.timer, SIM_DELAY_MS);
 	fsm_gc_push_event(&sim_fsm, &sim_success_e);
 }
 
@@ -315,7 +315,7 @@ void _sim_start_iterate_s(void)
 		fsm_gc_push_event(&sim_fsm, &sim_end_e);
 	}
 
-	if (util_old_timer_wait(&sim_state.timer)) {
+	if (gtimer_wait(&sim_state.timer)) {
 		return;
 	}
 
@@ -331,7 +331,7 @@ void _sim_init_http_s(void)
 		_sim_clear_response();
 
 		_sim_send_cmd("AT+HTTPINIT");
-		util_old_timer_start(&sim_state.timer, 5000);
+		gtimer_start(&sim_state.timer, 5000);
 	}
 
 	if (_sim_validate("ok")) {
@@ -343,7 +343,7 @@ void _sim_init_http_s(void)
 		fsm_gc_push_event(&sim_fsm, &sim_success_e);
 	}
 
-	if (util_old_timer_wait(&sim_state.timer)) {
+	if (gtimer_wait(&sim_state.timer)) {
 		return;
 	}
 
@@ -364,7 +364,7 @@ void _sim_start_http_s(void)
 		snprintf(httppara, sizeof(httppara), "AT+HTTPPARA=\"URL\",\"http://%s/api/log/ep\"", sim_state.url);
 
 		_sim_send_cmd(httppara);
-		util_old_timer_start(&sim_state.timer, 5000);
+		gtimer_start(&sim_state.timer, 5000);
 	}
 
 	if (_sim_validate("ok")) {
@@ -375,13 +375,13 @@ void _sim_start_http_s(void)
 		fsm_gc_push_event(&sim_fsm, &sim_success_e);
 	}
 
-	if (util_old_timer_wait(&sim_state.timer)) {
+	if (gtimer_wait(&sim_state.timer)) {
 		return;
 	}
 
 	sim_state.counter = 0;
 	sim_state.http_error = true;
-	util_old_timer_start(&sim_state.timer, SIM_HTTP_MS);
+	gtimer_start(&sim_state.timer, SIM_HTTP_MS);
 	fsm_gc_push_event(&sim_fsm, &sim_timeout_e);
 }
 
@@ -399,7 +399,7 @@ void _sim_send_http_s(void)
 		snprintf(httpdata, sizeof(httpdata), "AT+HTTPDATA=%d,%d", strlen(sim_state.request), 1000);
 		memset(sim_state.response, 0, sizeof(sim_state.response));
 		_sim_send_cmd(httpdata);
-		util_old_timer_start(&sim_state.timer, SIM_HTTP_MS);
+		gtimer_start(&sim_state.timer, SIM_HTTP_MS);
 	}
 
 	if (_sim_validate("download")) {
@@ -408,18 +408,18 @@ void _sim_send_http_s(void)
 		fsm_gc_clear(&sim_fsm);
 
 		_sim_send_cmd(sim_state.request);
-		util_old_timer_start(&sim_state.timer, SIM_HTTP_MS);
+		gtimer_start(&sim_state.timer, SIM_HTTP_MS);
 
 		fsm_gc_push_event(&sim_fsm, &sim_success_e);
 	}
 
-	if (util_old_timer_wait(&sim_state.timer)) {
+	if (gtimer_wait(&sim_state.timer)) {
 		return;
 	}
 
 	sim_state.counter = 0;
 	sim_state.http_error = true;
-	util_old_timer_start(&sim_state.timer, SIM_HTTP_MS);
+	gtimer_start(&sim_state.timer, SIM_HTTP_MS);
 	fsm_gc_push_event(&sim_fsm, &sim_timeout_e);
 }
 
@@ -432,17 +432,17 @@ void _sim_send_post_s(void)
 		fsm_gc_clear(&sim_fsm);
 
 		_sim_send_cmd("AT+HTTPACTION=1");
-		util_old_timer_start(&sim_state.timer, SIM_HTTP_MS);
+		gtimer_start(&sim_state.timer, SIM_HTTP_MS);
 
 		fsm_gc_push_event(&sim_fsm, &sim_success_e);
 	}
 
-	if (util_old_timer_wait(&sim_state.timer)) {
+	if (gtimer_wait(&sim_state.timer)) {
 		return;
 	}
 
 	sim_state.http_error = true;
-	util_old_timer_start(&sim_state.timer, SIM_HTTP_MS);
+	gtimer_start(&sim_state.timer, SIM_HTTP_MS);
 	fsm_gc_push_event(&sim_fsm, &sim_timeout_e);
 }
 
@@ -467,19 +467,19 @@ void _sim_wait_post_s(void)
 			fsm_gc_clear(&sim_fsm);
 
 			_sim_send_cmd("AT+HTTPHEAD");
-			util_old_timer_start(&sim_state.timer, SIM_HTTP_MS);
+			gtimer_start(&sim_state.timer, SIM_HTTP_MS);
 
 			fsm_gc_push_event(&sim_fsm, &sim_success_e);
 		}
 	}
 
-	if (util_old_timer_wait(&sim_state.timer)) {
+	if (gtimer_wait(&sim_state.timer)) {
 		return;
 	}
 
 	sim_state.counter = 0;
 	sim_state.http_error = true;
-	util_old_timer_start(&sim_state.timer, SIM_HTTP_MS);
+	gtimer_start(&sim_state.timer, SIM_HTTP_MS);
 	fsm_gc_push_event(&sim_fsm, &sim_timeout_e);
 }
 
@@ -507,19 +507,19 @@ void _sim_read_data_s(void)
 			char request[SIM_HTTP_SIZE] = { 0 };
 			snprintf(request, sizeof(request), "AT+HTTPREAD=0,%u", sim_state.resp_len);
 			_sim_send_cmd(request);
-			util_old_timer_start(&sim_state.timer, SIM_HTTP_MS);
+			gtimer_start(&sim_state.timer, SIM_HTTP_MS);
 
 			fsm_gc_push_event(&sim_fsm, &sim_success_e);
 		}
 	}
 
-	if (util_old_timer_wait(&sim_state.timer)) {
+	if (gtimer_wait(&sim_state.timer)) {
 		return;
 	}
 
 	sim_state.counter = 0;
 	sim_state.http_error = true;
-	util_old_timer_start(&sim_state.timer, SIM_HTTP_MS);
+	gtimer_start(&sim_state.timer, SIM_HTTP_MS);
 	fsm_gc_push_event(&sim_fsm, &sim_timeout_e);
 }
 
@@ -529,24 +529,24 @@ void _sim_wait_data_s(void)
 		fsm_gc_clear(&sim_fsm);
 
 		sim_state.done = false;
-		util_old_timer_start(&sim_state.timer, SIM_HTTP_MS);
+		gtimer_start(&sim_state.timer, SIM_HTTP_MS);
 
 		fsm_gc_push_event(&sim_fsm, &sim_success_e);
 	}
 
-	if (util_old_timer_wait(&sim_state.timer)) {
+	if (gtimer_wait(&sim_state.timer)) {
 		return;
 	}
 
 	sim_state.counter = 0;
 	sim_state.http_error = true;
-	util_old_timer_start(&sim_state.timer, SIM_HTTP_MS);
+	gtimer_start(&sim_state.timer, SIM_HTTP_MS);
 	fsm_gc_push_event(&sim_fsm, &sim_timeout_e);
 }
 
 void _sim_wait_user_s(void)
 {
-	if (!sim_state.done && util_old_timer_wait(&sim_state.timer)) {
+	if (!sim_state.done && gtimer_wait(&sim_state.timer)) {
 		return;
 	}
 
@@ -565,7 +565,7 @@ void _sim_close_http_s(void)
 		sim_state.counter++;
 
 		_sim_send_cmd("AT+HTTPTERM");
-		util_old_timer_start(&sim_state.timer, SIM_DELAY_MS);
+		gtimer_start(&sim_state.timer, SIM_DELAY_MS);
 	}
 
 	if (_sim_validate("ok")) {
@@ -583,7 +583,7 @@ void _sim_close_http_s(void)
 		}
 	}
 
-	if (util_old_timer_wait(&sim_state.timer)) {
+	if (gtimer_wait(&sim_state.timer)) {
 		return;
 	}
 
@@ -645,7 +645,7 @@ void _sim_error_s(void)
 	memset(&sim_state, 0, sizeof(sim_state));
 	strncpy(sim_state.url, settings.url, sizeof(sim_state.url));
 
-	util_old_timer_start(&sim_state.timer, 1500);
+	gtimer_start(&sim_state.timer, 1500);
 
 	fsm_gc_clear(&sim_fsm);
 	fsm_gc_push_event(&sim_fsm, &sim_success_e);
@@ -655,7 +655,7 @@ void _sim_reset_s(void)
 {
 	HAL_GPIO_WritePin(SIM_MODULE_RESET_PORT, SIM_MODULE_RESET_PIN, GPIO_PIN_RESET);
 
-	if (util_old_timer_wait(&sim_state.timer)) {
+	if (gtimer_wait(&sim_state.timer)) {
 		return;
 	}
 

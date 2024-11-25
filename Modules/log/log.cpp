@@ -114,10 +114,10 @@ FSM_GC_CREATE_TABLE(
 );
 
 
-static util_old_timer_t timer = {};
-static util_old_timer_t log_timer = {};
-static util_old_timer_t send_timer = {};
-static util_old_timer_t base_server_timer = {};
+static gtimer_t timer = {};
+static gtimer_t log_timer = {};
+static gtimer_t send_timer = {};
+static gtimer_t base_server_timer = {};
 
 static bool first_request     = true;
 static bool new_record_loaded = false;
@@ -293,7 +293,7 @@ void _load_rtc_ram_log()
 	} else {
 		sleep_sec -= timestamp - log_rtc_ram.log_time;
 	}
-	util_old_timer_start(&log_timer, (uint32_t)(sleep_sec * SECOND_MS));
+	gtimer_start(&log_timer, (uint32_t)(sleep_sec * SECOND_MS));
 
 	sleep_sec = BASE_SERVER_DELAY_SEC;
 	if (!is_clock_ready()) {
@@ -305,7 +305,7 @@ void _load_rtc_ram_log()
 	} else {
 		sleep_sec -= timestamp - log_rtc_ram.base_server_time;
 	}
-	util_old_timer_start(&base_server_timer, (uint32_t)(sleep_sec * SECOND_MS));
+	gtimer_start(&base_server_timer, (uint32_t)(sleep_sec * SECOND_MS));
 
 #if LOG_BEDUG
 	printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
@@ -338,15 +338,15 @@ void _idle_s(void)
 		log_timer.delay = settings.sleep_ms;
 	}
 
-	if (!util_old_timer_wait(&log_timer) && is_status(CLOCK_READY)) {
+	if (!gtimer_wait(&log_timer) && is_status(CLOCK_READY)) {
 		fsm_gc_push_event(&log_fsm, &save_e);
 	}
 
-	if (!util_old_timer_wait(&send_timer)) {
+	if (!gtimer_wait(&send_timer)) {
 		fsm_gc_push_event(&log_fsm, &send_e);
 	}
 
-	if (!is_base_server() && !util_old_timer_wait(&base_server_timer)) {
+	if (!is_base_server() && !gtimer_wait(&base_server_timer)) {
 		fsm_gc_push_event(&log_fsm, &base_e);
 	}
 }
@@ -357,7 +357,7 @@ void _check_net_s(void)
 		fsm_gc_push_event(&log_fsm, &success_e);
 	}
 
-	if (!util_old_timer_wait(&timer)) {
+	if (!gtimer_wait(&timer)) {
 		fsm_gc_push_event(&log_fsm, &timeout_e);
 	}
 }
@@ -368,7 +368,7 @@ void _send_s(void)
 		fsm_gc_push_event(&log_fsm, &success_e);
 	}
 
-	if (!util_old_timer_wait(&timer)) {
+	if (!gtimer_wait(&timer)) {
 		fsm_gc_push_event(&log_fsm, &timeout_e);
 	}
 }
@@ -380,12 +380,12 @@ void init_tims_a(void)
 
 	_load_rtc_ram_log();
 
-	util_old_timer_start(&send_timer, GENERAL_TIMEOUT_MS);
+	gtimer_start(&send_timer, GENERAL_TIMEOUT_MS);
 }
 
 void check_net_a(void)
 {
-	util_old_timer_start(&timer, 5 * SECOND_MS);
+	gtimer_start(&timer, 5 * SECOND_MS);
 }
 
 void save_a(void)
@@ -402,10 +402,10 @@ void save_a(void)
 		reset_status((SOUL_STATUS)NEW_RECORD_WAS_NOT_SAVED);
 		log_rtc_ram.log_time = record.record.time;
 		_save_rtc_ram_log();
-		util_old_timer_start(&log_timer, settings.sleep_ms);
+		gtimer_start(&log_timer, settings.sleep_ms);
 	} else {
 		set_status((SOUL_STATUS)NEW_RECORD_WAS_NOT_SAVED);
-		util_old_timer_start(&log_timer, GENERAL_TIMEOUT_MS);
+		gtimer_start(&log_timer, GENERAL_TIMEOUT_MS);
 #if LOG_BEDUG
 		printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
 #endif
@@ -422,7 +422,7 @@ void base_a(void)
 
 void check_timeout_a(void)
 {
-	util_old_timer_start(&send_timer, 10 * SECOND_MS);
+	gtimer_start(&send_timer, 10 * SECOND_MS);
 }
 
 void send_a(void)
@@ -477,7 +477,7 @@ void send_a(void)
 #endif
 	}
 	if (!first_request && is_status((SOUL_STATUS)NEW_RECORD_WAS_NOT_SAVED)) {
-		util_old_timer_start(&log_timer, settings.sleep_ms);
+		gtimer_start(&log_timer, settings.sleep_ms);
 #if LOG_BEDUG
 		printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
 #endif
@@ -538,8 +538,8 @@ void send_a(void)
 #endif
 	send_sim_http_post(data);
 
-	util_old_timer_start(&timer,      30 * SECOND_MS);
-	util_old_timer_start(&send_timer, 10 * SECOND_MS);
+	gtimer_start(&timer,      30 * SECOND_MS);
+	gtimer_start(&send_timer, 10 * SECOND_MS);
 }
 
 void parse_a(void)
@@ -593,7 +593,7 @@ void parse_a(void)
 	}
 	settings.server_log_id = atoi(data_ptr);
 	if (sended_id && sended_id < settings.server_log_id) {
-		util_old_timer_start(&log_timer, GENERAL_TIMEOUT_MS);
+		gtimer_start(&log_timer, GENERAL_TIMEOUT_MS);
 #if LOG_BEDUG
 		printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
 #endif
@@ -687,10 +687,10 @@ void parse_a(void)
 		recordStatus = record.loadNext();
 	}
 	if (recordStatus == RecordDB::RECORD_OK) {
-		util_old_timer_start(&send_timer, GENERAL_TIMEOUT_MS);
+		gtimer_start(&send_timer, GENERAL_TIMEOUT_MS);
 		set_status((SOUL_STATUS)HAS_NEW_RECORD);
 	} else {
-		util_old_timer_start(&send_timer, SEND_DELAY_NS);
+		gtimer_start(&send_timer, SEND_DELAY_NS);
 		reset_status((SOUL_STATUS)HAS_NEW_RECORD);
 	}
 }
@@ -708,12 +708,12 @@ void send_timeout_a(void)
 		set_main_server();
 	}
 
-	util_old_timer_start(&send_timer, 10 * SECOND_MS);
+	gtimer_start(&send_timer, 10 * SECOND_MS);
 }
 
 void error_a(void)
 {
 	fsm_gc_clear(&log_fsm);
 
-	util_old_timer_start(&send_timer, SEND_DELAY_NS);
+	gtimer_start(&send_timer, SEND_DELAY_NS);
 }

@@ -35,16 +35,19 @@ static void _system_error_timer_disable(void);
 static void _system_watchdog_check(void);
 
 
-static const char SYSTEM_TAG[] = "SYS";
+static const char SYSTEM_TAG[] = "GSys";
 static const uint32_t err_delay_ms = 30 * MINUTE_MS;
+
+static bool sys_timeout_enabled = false;
+static uint32_t sys_timeout_ms = 0;
 
 #ifndef GSYSTEM_NO_SYS_TICK_W
 static bool system_hsi_initialized = false;
 #endif
-static util_old_timer_t err_timer = {0};
+static gtimer_t err_timer = {0};
 
 #if defined(DEBUG)
-static unsigned kFLOPScounter = 0;
+static unsigned kCPScounter = 0;
 #endif
 
 #ifndef GSYSTEM_NO_ADC_W
@@ -60,7 +63,7 @@ typedef enum _watchdog_type_t {
 typedef struct _watchdogs_t {
 	void             (*action)(void);
 	uint32_t         delay_ms;
-	util_old_timer_t timer;
+	gtimer_t timer;
 	watchdog_type_t  type;
 } watchdogs_t;
 
@@ -114,7 +117,7 @@ watchdogs_t watchdogs[] = {
 
 typedef struct _process_t {
 	void (*action) (void);
-	util_old_timer_t timer;
+	gtimer_t timer;
 	uint32_t delay_ms;
 	bool work_with_error;
 } process_t;
@@ -153,7 +156,7 @@ void system_pre_load(void)
 
 	memset((uint8_t*)&processes, 0, sizeof(GSYSTEM_POCESSES_COUNT));
 
-	util_old_timer_start(&err_timer, err_delay_ms);
+	gtimer_start(&err_timer, err_delay_ms);
 
 	set_status(SYSTEM_HARDWARE_STARTED);
 }
@@ -170,12 +173,12 @@ void system_post_load(void)
 
 #ifndef GSYSTEM_NO_ADC_W
 	const uint32_t delay_ms = 10000;
-	util_old_timer_t timer = {0};
+	gtimer_t timer = {0};
 	bool need_error_timer = is_status(SYS_TICK_FAULT);
 	if (need_error_timer) {
 		_system_error_timer_start(delay_ms);
 	} else {
-		util_old_timer_start(&timer, delay_ms);
+		gtimer_start(&timer, delay_ms);
 	}
 	while (1) {
 		adc_watchdog_check();
@@ -190,7 +193,7 @@ void system_post_load(void)
 			set_error(SYS_TICK_ERROR);
 #endif
 			break;
-		} else if (!util_old_timer_wait(&timer)) {
+		} else if (!gtimer_wait(&timer)) {
 #ifndef GSYSTEM_NO_SYS_TICK_W
 			set_error(SYS_TICK_ERROR);
 #endif
@@ -227,13 +230,49 @@ void system_registrate(void (*process) (void), uint32_t delay_ms, bool work_with
 	processes_cnt++;
 }
 
+void set_system_timeout(uint32_t timeout_ms)
+{
+	sys_timeout_enabled = true;
+	sys_timeout_ms      = timeout_ms;
+}
+
+void system_start()
+{
+	HAL_Delay(100);
+
+	gprint("\n\n\n");
+	printTagLog(SYSTEM_TAG, "GSystem is loading");
+
+	system_post_load();
+
+	printTagLog(SYSTEM_TAG, "GSystem loaded");
+
+	gtimer_t err_timer = {0};
+	gtimer_start(&err_timer, sys_timeout_ms);
+	while (1) {
+		system_tick();
+
+		if (!gtimer_wait(&err_timer)) {
+			system_error_handler(get_first_error());
+		}
+
+		if (!is_system_ready() && sys_timeout_enabled) {
+			continue;
+		}
+
+		system_ready_check();
+
+		gtimer_start(&err_timer, sys_timeout_ms);
+	}
+}
+
 void system_tick()
 {
 	static unsigned index_w = 0;
 	static unsigned index_p = 0;
 
 #if defined(DEBUG)
-	kFLOPScounter++;
+	kCPScounter++;
 #endif
 
 	static bool work_w = true;
@@ -252,8 +291,8 @@ void system_tick()
 			index_w = 0;
 		}
 
-		if (is_status(SYS_TICK_FAULT) || !util_old_timer_wait(&watchdogs[index_w].timer)) {
-			util_old_timer_start(&watchdogs[index_w].timer, watchdogs[index_w].delay_ms);
+		if (is_status(SYS_TICK_FAULT) || !gtimer_wait(&watchdogs[index_w].timer)) {
+			gtimer_start(&watchdogs[index_w].timer, watchdogs[index_w].delay_ms);
 			watchdogs[index_w].action();
 		}
 
@@ -267,11 +306,11 @@ void system_tick()
 			index_p = 0;
 		}
 
-		if (!util_old_timer_wait(&processes[index_p].timer) &&
+		if (!gtimer_wait(&processes[index_p].timer) &&
 			(!has_errors() || (has_errors() && processes[index_p].work_with_error)) &&
 			processes[index_p].action
 		) {
-			util_old_timer_start(&processes[index_p].timer, processes[index_p].delay_ms);
+			gtimer_start(&processes[index_p].timer, processes[index_p].delay_ms);
 			processes[index_p].action();
 		}
 
@@ -301,7 +340,7 @@ void system_error_handler(SOUL_STATUS error)
 	}
 
 #if SYSTEM_BEDUG
-	printTagLog(SYSTEM_TAG, "system_error_handler called error=%s", get_status_name(error));
+	printTagLog(SYSTEM_TAG, "GSystem_error_handler called error=%s", get_status_name(error));
 #endif
 
 #ifndef GSYSTEM_NO_SYS_TICK_W
@@ -336,12 +375,12 @@ void system_error_handler(SOUL_STATUS error)
 #endif
 
 	const uint32_t delay_ms = 30 * SECOND_MS;
-	util_old_timer_t timer = {0};
+	gtimer_t timer = {0};
 	bool need_error_timer = is_status(SYS_TICK_FAULT);
 	if (need_error_timer) {
 		_system_error_timer_start(delay_ms);
 	} else {
-		util_old_timer_start(&timer, delay_ms);
+		gtimer_start(&timer, delay_ms);
 	}
 	while(1) {
 		system_error_loop();
@@ -350,7 +389,7 @@ void system_error_handler(SOUL_STATUS error)
 
 		if (is_status(SYS_TICK_FAULT) && !_system_error_timer_wait()) {
 			break;
-		} else if (!util_old_timer_wait(&timer)) {
+		} else if (!gtimer_wait(&timer)) {
 			break;
 		}
 	}
@@ -360,7 +399,7 @@ void system_error_handler(SOUL_STATUS error)
 
 #if SYSTEM_BEDUG
 	_system_error_timer_start(100);
-	printTagLog(SYSTEM_TAG, "system reset");
+	printTagLog(SYSTEM_TAG, "GSystem reset");
 	while(_system_error_timer_wait());
 	_system_error_timer_disable();
 #endif
@@ -507,6 +546,8 @@ __attribute__((weak)) void system_hsi_config(void)
 }
 #endif
 
+__attribute__((weak)) void system_ready_check(void) {}
+
 __attribute__((weak)) void system_error_loop(void) {}
 
 #if defined(GSYSTEM_EEPROM_MODE) || defined(SYSTEM_I2C) || (defined(GSYSTEM_DS1307_CLOCK) && defined(GSYSTEM_NO_RTC_W))
@@ -537,7 +578,7 @@ void system_reset_i2c_errata(void)
 
     if (!I2C_PORT) {
 #if defined(DEBUG) || defined(GBEDUG_FORCE)
-    	printTagLog(SYSTEM_TAG, "System i2c has not selected");
+    	printTagLog(SYSTEM_TAG, "GSystem i2c has not selected");
 #endif
 		system_error_handler(I2C_ERROR);
     }
@@ -570,7 +611,7 @@ void system_reset_i2c_errata(void)
 		GPIO_PinState stat;
 	} reseter_t;
 	const uint32_t TIMEOUT_MS = 2000;
-	util_old_timer_t timer = {0};
+	gtimer_t timer = {0};
 	reseter_t reseter[] = {
 		{I2C_SCL_Pin, GPIO_PIN_SET},
 		{I2C_SDA_Pin, GPIO_PIN_SET},
@@ -582,9 +623,9 @@ void system_reset_i2c_errata(void)
 
 	for (unsigned i = 0; i < __arr_len(reseter); i++) {
 		HAL_GPIO_WritePin(I2C_PORT, reseter[i].pin, reseter[i].stat);
-		util_old_timer_start(&timer, TIMEOUT_MS);
+		gtimer_start(&timer, TIMEOUT_MS);
 		while (reseter[i].stat != HAL_GPIO_ReadPin(I2C_PORT, reseter[i].pin)) {
-			if (!util_old_timer_wait(&timer)) {
+			if (!gtimer_wait(&timer)) {
 				system_error_handler(I2C_ERROR);
 			}
 			asm("nop");
@@ -612,7 +653,7 @@ void system_reset_i2c_errata(void)
 	HAL_I2C_Init(&SYSTEM_I2C);
 }
 #else
-#   warning "System i2c has not selected"
+#   warning "GSystem i2c has not selected"
 #endif
 
 char* get_system_serial_str(void)
@@ -785,25 +826,25 @@ void _system_error_timer_disable(void)
 void _system_watchdog_check(void)
 {
 #ifdef DEBUG
-	static util_old_timer_t kFLOPSTimer = {0,(10 * SECOND_MS)};
+	static gtimer_t kCPSTimer = {0,(10 * SECOND_MS)};
 #endif
 
-	if (!util_old_timer_wait(&err_timer)) {
+	if (!gtimer_wait(&err_timer)) {
 		system_error_handler(
-			get_first_error() ? get_first_error() : INTERNAL_ERROR
+			get_first_error() != NO_ERROR ? get_first_error() : INTERNAL_ERROR
 		);
 	}
 	if (!has_errors()) {
-		util_old_timer_start(&err_timer, err_delay_ms);
+		gtimer_start(&err_timer, err_delay_ms);
 	}
 
 #ifdef DEBUG
-	if (!util_old_timer_wait(&kFLOPSTimer)) {
+	if (!gtimer_wait(&kCPSTimer)) {
 		printTagLog(
 			SYSTEM_TAG,
-			"kFLOPS: %lu.%lu",
-			kFLOPScounter / (10 * SECOND_MS),
-			(kFLOPScounter / SECOND_MS) % 10
+			"kCPS: %lu.%lu",
+			kCPScounter / (10 * SECOND_MS),
+			(kCPScounter / SECOND_MS) % 10
 		);
 #   ifndef GSYSTEM_NO_ADC_W
 		uint32_t power = get_system_power();
@@ -814,8 +855,8 @@ void _system_watchdog_check(void)
 			power % 10
 		);
 #   endif
-		kFLOPScounter = 0;
-		util_old_timer_start(&kFLOPSTimer, (10 * SECOND_MS));
+		kCPScounter = 0;
+		gtimer_start(&kCPSTimer, (10 * SECOND_MS));
 	}
 	if (has_new_status_data()) {
 		show_statuses();

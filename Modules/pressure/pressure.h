@@ -25,7 +25,7 @@ typedef struct _press_measure_t {
 	uint16_t         value;
 	uint8_t          measure_values_idx;
 	uint16_t         measure_values[PRESS_MEASURE_COUNT];
-	util_old_timer_t wait_timer;
+	gtimer_t wait_timer;
 } press_measure_t;
 
 

@@ -39,7 +39,7 @@ static const action_t actions[] = {
 static const char TAG[] = "CMD";
 static char buffer[2 * STR_CMD_SIZE] = { 0 };
 static bool received = false;
-static util_old_timer_t timer = { 0 };
+static gtimer_t timer = { 0 };
 
 
 void cmd_input(uint8_t byte)
@@ -52,7 +52,7 @@ void cmd_input(uint8_t byte)
 	}
 	received = true;
 	buffer[strlen(buffer)] = byte;
-	util_old_timer_start(&timer, CMD_DELAY_MS);
+	gtimer_start(&timer, CMD_DELAY_MS);
 }
 
 void cmd_process()
@@ -61,7 +61,7 @@ void cmd_process()
 		return;
 	}
 
-	if (received && !util_old_timer_wait(&timer)) {
+	if (received && !gtimer_wait(&timer)) {
 		printTagLog(TAG, "unknown command: \"%s\"", buffer);
 		_clear();
 	}

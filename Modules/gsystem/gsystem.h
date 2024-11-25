@@ -27,11 +27,15 @@ extern "C" {
 #endif
 
 void system_pre_load(void);
-void system_post_load(void);
 void system_registrate(void (*process) (void), uint32_t delay_ms, bool work_with_error);
-void system_tick();
+void set_system_timeout(uint32_t timeout_ms);
+void system_start();
 
-bool is_system_ready();
+void system_post_load(void);
+void system_tick(void);
+void system_ready_check(void);
+
+bool is_system_ready(void);
 
 void system_error_handler(SOUL_STATUS error);
 

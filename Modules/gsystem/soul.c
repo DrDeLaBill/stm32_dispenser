@@ -89,7 +89,7 @@ SOUL_STATUS get_first_error()
 			return i;
 		}
 	}
-	return 0;
+	return NO_ERROR;
 }
 
 bool is_internal_status(SOUL_STATUS status)
@@ -271,7 +271,7 @@ void show_errors()
 		printPretty("%s\n", get_status_name(i));
 	}
 	if (!cnt) {
-		printPretty("NO_ERROR\n");
+		printPretty("%s", __STR_DEF__(NO_ERROR));
 	}
 }
 
