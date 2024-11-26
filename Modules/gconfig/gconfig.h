@@ -19,12 +19,18 @@ extern "C" {
 //#define GSYSTEM_NO_POWER_W
 //#define GSYSTEM_NO_MEMORY_W
 
+//#define GSYSTEM_NO_PRINTF
+
 #define GSYSTEM_ADC_VOLTAGE_COUNT (3)
 
 #define GSYSTEM_FLASH_MODE
 //#define GSYSTEM_EEPROM_MODE
 
 #define GSYSTEM_DS1307_CLOCK
+
+#define GSYSTEM_TIMER             (TIM1)
+
+#define GSYSTEM_BEDUG_UART        (huart3)
 
 
 typedef enum _CUSTOM_SOUL_STATUSES {

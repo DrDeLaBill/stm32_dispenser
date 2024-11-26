@@ -358,18 +358,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	}
 }
 
-int _write(int, uint8_t *ptr, int len) {
-	HAL_UART_Transmit(&RS485_UART, (uint8_t*)ptr, static_cast<uint16_t>(len), GENERAL_TIMEOUT_MS);
-    HAL_UART_Transmit(&BEDUG_UART, (uint8_t*)ptr, static_cast<uint16_t>(len), GENERAL_TIMEOUT_MS);
-#ifdef DEBUG
-    for (int DataIdx = 0; DataIdx < len; DataIdx++) {
-        ITM_SendChar(*ptr++);
-    }
-    return len;
-#endif
-    return 0;
-}
-
 /* USER CODE END 4 */
 
 /**

@@ -62,7 +62,7 @@ extern "C" void settings_update()
 		settings_reset(&settings);
 		fsm_gc_init(&stng_fsm, stng_fsm_table, __arr_len(stng_fsm_table));
 	}
-	fsm_gc_proccess(&stng_fsm);
+	fsm_gc_process(&stng_fsm);
 }
 
 void _stng_check(void)

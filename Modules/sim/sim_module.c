@@ -186,7 +186,7 @@ void sim_begin() {
 
 void sim_process()
 {
-	fsm_gc_proccess(&sim_fsm);
+	fsm_gc_process(&sim_fsm);
 }
 
 void sim_proccess_input(const char input_chr)

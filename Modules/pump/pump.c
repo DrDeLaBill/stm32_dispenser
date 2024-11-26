@@ -111,7 +111,7 @@ void pump_init()
 
 void pump_process()
 {
-	fsm_gc_proccess(&pump_fsm);
+	fsm_gc_process(&pump_fsm);
     _pump_indication_proccess();
 }
 

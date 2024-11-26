@@ -134,7 +134,7 @@ void log_init()
 
 void log_tick()
 {
-	fsm_gc_proccess(&log_fsm);
+	fsm_gc_process(&log_fsm);
 }
 
 bool _find_param(char** dst, const char* src, const char* param)
