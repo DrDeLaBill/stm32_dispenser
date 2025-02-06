@@ -4,13 +4,7 @@
 
 #include <cstdint>
 
-#include "main.h"
 #include "settings.h"
-
-
-#ifdef DEBUG
-#   define SETTINGS_DB_BEDUG (0)
-#endif
 
 
 class SettingsDB

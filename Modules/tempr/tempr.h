@@ -17,20 +17,8 @@ extern "C" {
 #include "gutils.h"
 
 
-#define PRESS_MEASURE_COUNT 30
-
-
-typedef struct _press_measure_t {
-	bool             measure_ready;
-	uint16_t         value;
-	uint8_t          measure_values_idx;
-	uint16_t         measure_values[PRESS_MEASURE_COUNT];
-	gtimer_t wait_timer;
-} press_measure_t;
-
-
-void pressure_process();
-uint16_t get_press();
+void tempr_tick();
+uint16_t get_tempr();
 
 
 #ifdef __cplusplus

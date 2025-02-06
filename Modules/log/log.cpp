@@ -11,11 +11,12 @@
 #include "glog.h"
 #include "level.h"
 #include "clock.h"
+#include "tempr.h"
 #include "fsm_gc.h"
 #include "gutils.h"
+#include "modbus.h"
 #include "gsystem.h"
 #include "settings.h"
-#include "pressure.h"
 #include "sim_module.h"
 
 #include "RecordDB.h"
@@ -40,28 +41,10 @@ static bool _update_time(char* data);
 static void _save_rtc_ram_log();
 static void _load_rtc_ram_log();
 static void _clear_log();
+static void _show_timers();
 
 
-static void _init_s(void);
-static void _idle_s(void);
-static void _check_net_s(void);
-static void _send_s(void);
-
-static void init_tims_a(void);
-static void check_net_a(void);
-static void check_timeout_a(void);
-static void save_a(void);
-static void base_a(void);
-static void send_a(void);
-static void parse_a(void);
-static void send_timeout_a(void);
-static void error_a(void);
-
-
-#if LOG_BEDUG
 static const char* TAG                = "LOG";
-#endif
-
 static const char* T_DASH_FIELD       = "-";
 static const char* T_TIME_FIELD       = "t";
 static const char* T_COLON_FIELD      = ":";
@@ -97,20 +80,30 @@ FSM_GC_CREATE_STATE(idle_s,      _idle_s);
 FSM_GC_CREATE_STATE(check_net_s, _check_net_s);
 FSM_GC_CREATE_STATE(send_s,      _send_s);
 
+FSM_GC_CREATE_ACTION(init_tims_a,     _init_tims_a)
+FSM_GC_CREATE_ACTION(check_net_a,     _check_net_a);
+FSM_GC_CREATE_ACTION(check_timeout_a, _check_timeout_a);
+FSM_GC_CREATE_ACTION(save_a,          _save_a);
+FSM_GC_CREATE_ACTION(base_a,          _base_a);
+FSM_GC_CREATE_ACTION(send_a,          _send_a);
+FSM_GC_CREATE_ACTION(parse_a,         _parse_a);
+FSM_GC_CREATE_ACTION(send_timeout_a,  _send_timeout_a);
+FSM_GC_CREATE_ACTION(error_a,         _error_a);
+
 FSM_GC_CREATE_TABLE(
 	log_fsm_table,
-	{&init_s,      &success_e, &idle_s,      init_tims_a},
+	{&init_s,      &success_e, &idle_s,      &init_tims_a},
 
-	{&idle_s,      &save_e,    &idle_s,      save_a},
-	{&idle_s,      &base_e,    &idle_s,      base_a},
-	{&idle_s,      &send_e,    &check_net_s, check_net_a},
+	{&idle_s,      &save_e,    &idle_s,      &save_a},
+	{&idle_s,      &base_e,    &idle_s,      &base_a},
+	{&idle_s,      &send_e,    &check_net_s, &check_net_a},
 
-	{&check_net_s, &success_e, &send_s,      send_a},
-	{&check_net_s, &timeout_e, &idle_s,      check_timeout_a},
+	{&check_net_s, &success_e, &send_s,      &send_a},
+	{&check_net_s, &timeout_e, &idle_s,      &check_timeout_a},
 
-	{&send_s,      &success_e, &idle_s,      parse_a},
-	{&send_s,      &timeout_e, &idle_s,      send_timeout_a},
-	{&send_s,      &error_e,   &idle_s,      error_a}
+	{&send_s,      &success_e, &idle_s,      &parse_a},
+	{&send_s,      &timeout_e, &idle_s,      &send_timeout_a},
+	{&send_s,      &error_e,   &idle_s,      &error_a}
 );
 
 
@@ -135,6 +128,13 @@ void log_init()
 void log_tick()
 {
 	fsm_gc_process(&log_fsm);
+}
+
+extern "C" void log_reset_timers()
+{
+	log_rtc_ram.log_time = 0;
+	log_rtc_ram.base_server_time = 0;
+	_save_rtc_ram_log();
 }
 
 bool _find_param(char** dst, const char* src, const char* param)
@@ -182,11 +182,12 @@ void _make_record(RecordDB& record)
 	};
 
 	record.setRecordId(0);
-	record.record.level         = get_level();
-	record.record.press         = get_press();
-	record.record.time          = get_clock_timestamp();
-	record.record.pump_wok_time = settings.pump_work_sec;
-	record.record.pump_downtime = settings.pump_downtime_sec;
+	record.record.level          = get_level();
+	record.record.tempr          = get_tempr();
+	record.record.press          = (uint16_t)get_press();
+	record.record.time           = get_clock_timestamp();
+	record.record.pump_work_time = settings.pump_work_sec;
+	record.record.pump_downtime  = settings.pump_downtime_sec;
 	for (unsigned i = 0; i < __arr_len(inputs); i++) {
 		HAL_GPIO_ReadPin(inputs[i].port, inputs[i].pin) ?
 			__set_bit(record.record.inputs, i) :
@@ -221,7 +222,7 @@ bool _update_time(char* data)
 	date.Date = (uint8_t)atoi(data_ptr);
 
 	if (!save_clock_date(&date)) {
-#if LOG_BEDUG
+#if LOG_PARSE_BEDUG
 		printTagLog(TAG, "unable to save date");
 #endif
 		return false;
@@ -253,7 +254,7 @@ bool _update_time(char* data)
 		return true;
 	}
 
-#if LOG_BEDUG
+#if LOG_PARSE_BEDUG
 	printTagLog(TAG, "unable to save time");
 #endif
 
@@ -307,10 +308,7 @@ void _load_rtc_ram_log()
 	}
 	gtimer_start(&base_server_timer, (uint32_t)(sleep_sec * SECOND_MS));
 
-#if LOG_BEDUG
-	printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
-	printTagLog(TAG, "Start base_server_timer %lu ms", base_server_timer.delay);
-#endif
+	_show_timers();
 }
 
 void _clear_log()
@@ -321,6 +319,23 @@ void _clear_log()
 	settings.pump_work_day_sec = 0;
 	settings.pump_downtime_sec = 0;
 	set_status(NEED_SAVE_SETTINGS);
+}
+
+void _show_timers()
+{
+	uint32_t curr_time = getMillis();
+	uint32_t timer_time_end = log_timer.start + log_timer.delay;
+	uint32_t log_time_left = 0;
+	if (curr_time < timer_time_end) {
+		log_time_left = timer_time_end - curr_time;
+	}
+	timer_time_end = base_server_timer.start + base_server_timer.delay;
+	uint32_t server_time_left = 0;
+	if (curr_time < timer_time_end) {
+		server_time_left = timer_time_end - curr_time;
+	}
+	printTagLog(TAG, "log_timer        : delay=%lu time_left=%lu (ms)", log_timer.delay, log_time_left);
+	printTagLog(TAG, "base_server_timer: delay=%lu time_left=%lu (ms)", base_server_timer.delay, server_time_left);
 }
 
 void _init_s(void)
@@ -336,9 +351,13 @@ void _idle_s(void)
 {
 	if (log_timer.delay > settings.sleep_ms) {
 		log_timer.delay = settings.sleep_ms;
+		_show_timers();
 	}
 
-	if (!gtimer_wait(&log_timer) && is_status(CLOCK_READY)) {
+	if (!gtimer_wait(&log_timer) && is_status(RTC_READY) && !settings_ready()){
+		asm("nop");
+	}
+	if (!gtimer_wait(&log_timer) && is_status(RTC_READY) && settings_ready()) {
 		fsm_gc_push_event(&log_fsm, &save_e);
 	}
 
@@ -374,7 +393,7 @@ void _send_s(void)
 }
 
 
-void init_tims_a(void)
+void _init_tims_a(void)
 {
 	fsm_gc_clear(&log_fsm);
 
@@ -383,18 +402,19 @@ void init_tims_a(void)
 	gtimer_start(&send_timer, GENERAL_TIMEOUT_MS);
 }
 
-void check_net_a(void)
+void _check_net_a(void)
 {
 	gtimer_start(&timer, 5 * SECOND_MS);
 }
 
-void save_a(void)
+void _save_a(void)
 {
 	_make_record(record);
 
-	if (record.save() == RecordDB::RECORD_OK) {
-#if LOG_BEDUG
-		printTagLog(TAG, "Saving record");
+	RecordDB::RecordStatus status = record.save();
+	if (status == RecordDB::RECORD_OK) {
+#if LOG_WORK_BEDUG
+		printTagLog(TAG, "Record saved");
 #endif
 		settings.pump_work_sec = 0;
 		settings.pump_downtime_sec = 0;
@@ -406,28 +426,26 @@ void save_a(void)
 	} else {
 		set_status((SOUL_STATUS)NEW_RECORD_WAS_NOT_SAVED);
 		gtimer_start(&log_timer, GENERAL_TIMEOUT_MS);
-#if LOG_BEDUG
-		printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
-#endif
+		_show_timers();
 	}
 }
 
-void base_a(void)
+void _base_a(void)
 {
-#if LOG_BEDUG
+#if LOG_WORK_BEDUG
 	printTagLog(TAG, "Setting base server");
 #endif
 	set_base_server();
 }
 
-void check_timeout_a(void)
+void _check_timeout_a(void)
 {
 	gtimer_start(&send_timer, 10 * SECOND_MS);
 }
 
-void send_a(void)
+void _send_a(void)
 {
-#if LOG_BEDUG
+#if LOG_WORK_BEDUG
 	printTagLog(TAG, "Sending request");
 #endif
 	char data[SIM_LOG_SIZE] = {};
@@ -472,15 +490,13 @@ void send_a(void)
 	if (recordStatus == RecordDB::RECORD_NO_LOG) {
 		reset_status((SOUL_STATUS)HAS_NEW_RECORD);
 	} else if (recordStatus != RecordDB::RECORD_OK) {
-#if LOG_BEDUG
+#if LOG_WORK_BEDUG
 		printTagLog(TAG, "error load record");
 #endif
 	}
 	if (!first_request && is_status((SOUL_STATUS)NEW_RECORD_WAS_NOT_SAVED)) {
 		gtimer_start(&log_timer, settings.sleep_ms);
-#if LOG_BEDUG
-		printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
-#endif
+		_show_timers();
 		reset_status((SOUL_STATUS)NEW_RECORD_WAS_NOT_SAVED);
 		recordStatus = RecordDB::RECORD_OK;
 		_make_record(record);
@@ -500,6 +516,7 @@ void send_a(void)
 				"id=%lu;"
 				"t=%s;"
 				"level=%ld;"
+				"tempr=%u.%02u"
 				"press=%u.%02u;"
 				"pumpw=%lu;"
 				"inp1=%u;"
@@ -512,8 +529,9 @@ void send_a(void)
 			record.record.id,
 			get_clock_time_format_by_sec(record.record.time),
 			record.record.level,
+			record.record.tempr / 100, record.record.tempr % 100,
 			record.record.press / 100, record.record.press % 100,
-			record.record.pump_wok_time,
+			record.record.pump_work_time,
 			(unsigned)__get_bit(record.record.inputs, 0),
 			(unsigned)__get_bit(record.record.inputs, 1),
 			(unsigned)__get_bit(record.record.inputs, 2),
@@ -528,12 +546,12 @@ void send_a(void)
 		sended_id = 0;
 	}
 
-	if (is_status(CLOCK_READY)) {
+	if (is_status(RTC_READY)) {
 		new_record_loaded = false;
 	}
 
 
-#if LOG_BEDUG
+#if LOG_WORK_BEDUG
 	printTagLog(TAG, "request:\n%s", data);
 #endif
 	send_sim_http_post(data);
@@ -542,7 +560,7 @@ void send_a(void)
 	gtimer_start(&send_timer, 10 * SECOND_MS);
 }
 
-void parse_a(void)
+void _parse_a(void)
 {
 	fsm_gc_clear(&log_fsm);
 
@@ -555,30 +573,30 @@ void parse_a(void)
 		set_main_server();
 	}
 
-#if LOG_BEDUG
+#if LOG_PARSE_BEDUG
 	printTagLog(TAG, "response: %s", var_ptr);
 #endif
 
 	if (!var_ptr) {
-#if LOG_BEDUG
+#if LOG_PARSE_BEDUG
 		printTagLog(TAG, "unable to parse response (no response)");
 #endif
 		return;
 	}
 
 	if (!_find_param(&data_ptr, var_ptr, TIME_FIELD)) {
-#if LOG_BEDUG
+#if LOG_PARSE_BEDUG
 		printTagLog(TAG, "unable to parse response (no time) - [%s]", var_ptr);
 #endif
 		return;
 	}
 
 	if (_update_time(data_ptr)) {
-#if LOG_BEDUG
+#if LOG_PARSE_BEDUG
 		printTagLog(TAG, "time updated");
 #endif
 	} else {
-#if LOG_BEDUG
+#if LOG_PARSE_BEDUG
 		printTagLog(TAG, "unable to update time - [\n%s]", data_ptr);
 #endif
 		set_error(RTC_ERROR);
@@ -586,7 +604,7 @@ void parse_a(void)
 
 	// Parse configuration:
 	if (!_find_param(&data_ptr, var_ptr, CF_LOGID_FIELD)) {
-#if LOG_BEDUG
+#if LOG_PARSE_BEDUG
 		printTagLog(TAG, "unable to parse response (log_id not found) - %s", var_ptr);
 #endif
 		return;
@@ -594,25 +612,25 @@ void parse_a(void)
 	settings.server_log_id = atoi(data_ptr);
 	if (sended_id && sended_id < settings.server_log_id) {
 		gtimer_start(&log_timer, GENERAL_TIMEOUT_MS);
-#if LOG_BEDUG
+#if LOG_PARSE_BEDUG
 		printTagLog(TAG, "Start log_timer %lu ms", log_timer.delay);
 #endif
 	}
 	first_request = false;
 
-#if LOG_BEDUG
+#if LOG_PARSE_BEDUG
 	printTagLog(TAG, "Recieved response from the server");
 #endif
 
 	if (!_find_param(&data_ptr, var_ptr, CF_ID_FIELD)) {
-#if LOG_BEDUG
+#if LOG_PARSE_BEDUG
 		printTagLog(TAG, "unable to parse response (cf_id not found) - %s", var_ptr);
 #endif
 	}
 	settings.cf_id = atoi(data_ptr);
 
 	if (!_find_param(&data_ptr, var_ptr, CF_DATA_FIELD)) {
-#if LOG_BEDUG
+#if LOG_PARSE_BEDUG
 		printTagLog(TAG, "warning: no cf_id data - [%s]", var_ptr);
 #endif
 	}
@@ -674,7 +692,7 @@ void parse_a(void)
 		set_settings_url(url);
 	}
 
-#if LOG_BEDUG
+#if LOG_PARSE_BEDUG
 	printTagLog(TAG, "configuration updated");
 #endif
 	settings_show();
@@ -695,7 +713,7 @@ void parse_a(void)
 	}
 }
 
-void send_timeout_a(void)
+void _send_timeout_a(void)
 {
 	fsm_gc_clear(&log_fsm);
 
@@ -711,7 +729,7 @@ void send_timeout_a(void)
 	gtimer_start(&send_timer, 10 * SECOND_MS);
 }
 
-void error_a(void)
+void _error_a(void)
 {
 	fsm_gc_clear(&log_fsm);
 

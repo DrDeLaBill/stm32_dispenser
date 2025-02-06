@@ -224,7 +224,7 @@ RecordDB::RecordStatus RecordDB::save()
     	memset(
 			reinterpret_cast<void*>(&(this->m_clust.records[idx + 1])),
 			0,
-			((CLUST_SIZE - idx - 1) * sizeof(struct _Record))
+			((CLUST_SIZE - idx - 1) * sizeof(struct _record_v3_t))
 		);
     }
 
@@ -235,32 +235,33 @@ RecordDB::RecordStatus RecordDB::save()
         reinterpret_cast<uint8_t*>(&this->m_clust),
         sizeof(this->m_clust)
     );
-    if (storageStatus != STORAGE_OK) {
-#if RECORD_BEDUG
-        printTagLog(RecordDB::TAG, "error save: save clust");
-#endif
-        return RECORD_ERROR;
-    }
-
-    set_status((SOUL_STATUS)HAS_NEW_RECORD);
 
     printTagLog(
 		RecordDB::TAG,
 		"record saved on address=%08X",
 		(unsigned int)address
 	);
-    gprint("ID:    %lu\n",         record.id);
-	gprint("Time:  %s\n",          get_clock_time_format_by_sec(record.time));
-	gprint("Level: %ld %s\n",      record.level / 1000, (record.level == LEVEL_ERROR ? "" : "l"));
-	gprint("Press: %u.%02u MPa\n", record.press / 100, record.press % 100);
-//	gprint("Press 2: %d.%02d MPa\n",                     record.press_2 / 100, record.press_2 % 100);
+    printPretty("ID       : %lu\n", record.id);
+    printPretty("Time     : %s\n", get_clock_time_format_by_sec(record.time));
+    printPretty("Level    : %ld %s\n", record.level / 1000, (record.level == LEVEL_ERROR ? "" : "l"));
+    printPretty("Tempr    : %u.%02u MPa\n", record.tempr / 100, record.tempr % 100);
+    printPretty("Press    : %u.%02u MPa\n", record.press / 100, record.press % 100);
+    printPretty("Work time: %lu sec\n", record.pump_work_time);
+    printPretty("Downtime : %lu sec\n", record.pump_downtime);
+
+    if (storageStatus != STORAGE_OK) {
+        printTagLog(RecordDB::TAG, "error save: storage status=%u", storageStatus);
+        return RECORD_ERROR;
+    }
+
+    set_status((SOUL_STATUS)HAS_NEW_RECORD);
 
     return RECORD_OK;
 }
 
 RecordDB::RecordStatus RecordDB::loadClust(uint32_t address)
 {
-    RecordClust tmpClust;
+    record_clust_v3_t tmpClust = {};
     StorageStatus status = storage.load(address, reinterpret_cast<uint8_t*>(&tmpClust), sizeof(tmpClust));
     if (status != STORAGE_OK) {
 #if RECORD_BEDUG
@@ -277,7 +278,11 @@ RecordDB::RecordStatus RecordDB::loadClust(uint32_t address)
         return RECORD_ERROR;
     }
 
+    RecordStatus recordStatus = RECORD_OK;
     if (tmpClust.rcrd_ver != CLUST_VERSION) {
+        recordStatus = recover(address, tmpClust);
+    }
+    if (recordStatus != RECORD_OK) {
 #if RECORD_BEDUG
         printTagLog(RecordDB::TAG, "error record clust version");
 #endif
@@ -313,9 +318,9 @@ RecordDB::RecordStatus RecordDB::getNewId(uint32_t *newId)
         return RECORD_ERROR;
     }
 
-    RecordClust tmpClust;
-    status = storage.load(address, reinterpret_cast<uint8_t*>(&tmpClust), sizeof(tmpClust));
-    if (status != STORAGE_OK) {
+    RecordDB tmpClust(0);
+    RecordStatus recordStatus = tmpClust.loadClust(address);
+    if (recordStatus != RECORD_OK) {
 #if RECORD_BEDUG
         printTagLog(RecordDB::TAG, "error get new id");
 #endif
@@ -323,9 +328,9 @@ RecordDB::RecordStatus RecordDB::getNewId(uint32_t *newId)
     }
 
     *newId = 0;
-    for (unsigned i = 0; i < __arr_len(tmpClust.records); i++) {
-    	if (*newId < tmpClust.records[i].id) {
-    		*newId = tmpClust.records[i].id;
+    for (unsigned i = 0; i < __arr_len(tmpClust.m_clust.records); i++) {
+    	if (*newId < tmpClust.m_clust.records[i].id) {
+    		*newId = tmpClust.m_clust.records[i].id;
     	}
     }
 
@@ -335,9 +340,53 @@ RecordDB::RecordStatus RecordDB::getNewId(uint32_t *newId)
         *newId = *newId + 1;
     }
 
+    printTagLog(RecordDB::TAG, "new ID received from address=%08X new_id=%lu", (unsigned int)address, *newId);
+
+    return RECORD_OK;
+}
+
+RecordDB::RecordStatus RecordDB::recover(uint32_t address, record_clust_v3_t& clust)
+{
+    record_clust_v2_t tmpClust = {};
+    StorageStatus status = storage.load(address, reinterpret_cast<uint8_t*>(&tmpClust), sizeof(tmpClust));
+    if (status != STORAGE_OK) {
 #if RECORD_BEDUG
-    printTagLog(RecordDB::TAG, "new ID received from address=%08X id=%lu", (unsigned int)address, *newId);
+        printTagLog(RecordDB::TAG, "error recover clust");
 #endif
+        return RECORD_ERROR;
+    }
+
+    if (tmpClust.rcrd_magic != CLUST_MAGIC) {
+#if RECORD_BEDUG
+        printTagLog(RecordDB::TAG, "error recover record clust magic");
+#endif
+        return RECORD_ERROR;
+    }
+
+    if (tmpClust.rcrd_ver != CLUST_VERSION_V2) {
+#if RECORD_BEDUG
+        printTagLog(RecordDB::TAG, "error recover record clust version");
+#endif
+        return RECORD_ERROR;
+    }
+
+    clust.rcrd_ver = CLUST_VERSION;
+    unsigned start_i = __arr_len(tmpClust.records) > __arr_len(clust.records) ?
+    		__arr_len(tmpClust.records) - __arr_len(clust.records) :
+			__arr_len(clust.records);
+    for (unsigned i = start_i; i < __arr_len(tmpClust.records); i++) {
+    	if (!tmpClust.records[i].id) {
+    		break;
+    	}
+    	clust.records[i - start_i].id            = tmpClust.records[i].id;
+    	clust.records[i - start_i].level         = tmpClust.records[i].level;
+    	clust.records[i - start_i].press         = tmpClust.records[i].press;
+    	clust.records[i - start_i].pump_downtime = tmpClust.records[i].pump_downtime;
+    	clust.records[i - start_i].pump_work_time = tmpClust.records[i].pump_wok_time;
+    	clust.records[i - start_i].tempr         = 0;
+    	clust.records[i - start_i].time          = tmpClust.records[i].time;
+    	clust.records[i - start_i].inputs        = tmpClust.records[i].inputs;
+    }
 
     return RECORD_OK;
 }

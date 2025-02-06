@@ -1,6 +1,6 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.26)
 
-message(STATUS "Running : arm-none-eabi.cmake")
+message(STATUS "Include      : arm-none-eabi.cmake")
 
 ###################### CONSTANTS ######################################
 set(PROJECT_TYPE_EXECUTABLE          "exe")
@@ -46,14 +46,14 @@ set(CMAKE_OBJDUMP       arm-none-eabi-objdump)
 set(CMAKE_OBJCOPY       arm-none-eabi-objcopy)
 
 if (DEBUG)
-    set(OPTIMISATION Og)
+    set(OPTIMISATION Os)
     set(DEBUG "-g3")
 else()
     set(OPTIMISATION Os)
     set(DEBUG "")
 endif()
 
-set(WARN_FLAGS "")
+set(WARN_FLAGS "-DNO_CPU_INFO")
 if (DEBUG)
     set(WARN_FLAGS "${WARN_FLAGS} -Wall -Wextra -pedantic -Wmissing-include-dirs -Wswitch-default -Wswitch-enum -Wconversion")
 endif()

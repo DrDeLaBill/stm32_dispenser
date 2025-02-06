@@ -115,6 +115,7 @@ void settings_show()
 		"Pump speed:       %lu ml/h\n"
 		"Pump work:        %lu sec\n"
 		"Pump work day:    %lu sec\n"
+		"Pump downtime:    %lu sec\n"
 		"Pump              %s\n"
 		"ADC level MIN:    %lu\n"
 		"ADC level MAX:    %lu\n"
@@ -132,6 +133,7 @@ void settings_show()
 		settings.pump_speed,
 		settings.pump_work_sec,
 		settings.pump_work_day_sec,
+		settings.pump_downtime_sec,
 		settings.pump_enabled ? "ON" : "OFF",
 		settings.tank_ADC_min,
 		settings.tank_ADC_max,

@@ -16,13 +16,6 @@
 
 void _stng_check(void);
 
-void _stng_init_s(void);
-void _stng_idle_s(void);
-void _stng_save_s(void);
-void _stng_load_s(void);
-
-void _stng_update_hash_a(void);
-
 
 #if SETTINGS_BEDUG
 const char STNGw_TAG[] = "STGw";
@@ -35,22 +28,24 @@ static unsigned old_hash = 0;
 FSM_GC_CREATE(stng_fsm)
 
 FSM_GC_CREATE_EVENT(stng_saved_e,   0)
-FSM_GC_CREATE_EVENT(stng_updated_e, 0)
+FSM_GC_CREATE_EVENT(stng_updated_e, 1)
 
 FSM_GC_CREATE_STATE(stng_init_s, _stng_init_s)
 FSM_GC_CREATE_STATE(stng_idle_s, _stng_idle_s)
 FSM_GC_CREATE_STATE(stng_save_s, _stng_save_s)
 FSM_GC_CREATE_STATE(stng_load_s, _stng_load_s)
 
+FSM_GC_CREATE_ACTION(stng_update_hash_a, _stng_update_hash_a)
+
 FSM_GC_CREATE_TABLE(
 	stng_fsm_table,
-	{&stng_init_s, &stng_updated_e, &stng_idle_s, _stng_update_hash_a},
+	{&stng_init_s, &stng_updated_e, &stng_idle_s, &stng_update_hash_a},
 
 	{&stng_idle_s, &stng_saved_e,   &stng_load_s, NULL},
 	{&stng_idle_s, &stng_updated_e, &stng_save_s, NULL},
 
-	{&stng_load_s, &stng_updated_e, &stng_idle_s, _stng_update_hash_a},
-	{&stng_save_s, &stng_saved_e,   &stng_idle_s, _stng_update_hash_a}
+	{&stng_load_s, &stng_updated_e, &stng_idle_s, &stng_update_hash_a},
+	{&stng_save_s, &stng_saved_e,   &stng_idle_s, &stng_update_hash_a}
 )
 
 extern "C" void settings_update()
@@ -63,6 +58,14 @@ extern "C" void settings_update()
 		fsm_gc_init(&stng_fsm, stng_fsm_table, __arr_len(stng_fsm_table));
 	}
 	fsm_gc_process(&stng_fsm);
+}
+
+extern "C" bool settings_ready()
+{
+	return !is_status(SETTINGS_LOAD_ERROR) &&
+           !is_status(NEED_SAVE_SETTINGS) &&
+		   !is_status(NEED_LOAD_SETTINGS) &&
+		   is_status(SETTINGS_INITIALIZED);
 }
 
 void _stng_check(void)
@@ -138,9 +141,7 @@ void _stng_save_s(void)
 		settings_show();
 
 		reset_error(SETTINGS_LOAD_ERROR);
-
 		reset_status(NEED_SAVE_SETTINGS);
-		set_status(SYSTEM_SOFTWARE_READY);
 	}
 }
 
@@ -156,6 +157,7 @@ void _stng_load_s(void)
 
 		reset_error(SETTINGS_LOAD_ERROR);
 		reset_status(NEED_LOAD_SETTINGS);
+
 		set_status(SYSTEM_SOFTWARE_READY);
 	}
 }

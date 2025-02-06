@@ -32,18 +32,38 @@
 *.app
 
 # STM32CubeIDE
-Debug*
-Release*
+Debug/*
+Release/*
 *language.settings.xml
 *Backup*
 build*
 .vscode*
+*.o
 *.su
 *.obj
 *.mk
 *.map
 *.bin
 *.hex
+*.elf
+*.list
+*.cyclo
 *.launch
-*Debug.cfg
-*Release.cfg
+backup_*.ioc
+makefile
+
+# TouchGFX
+TouchGFX/simulator*
+TouchGFX/build*
+TouchGFX/config*
+TouchGFX/generated/fonts/*.txt
+TouchGFX/generated/user.config
+*.cache
+*.temp
+
+# For current project
+CMakeLists.txt
+search.cmake
+
+# Excludes
+# --------

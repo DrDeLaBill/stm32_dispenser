@@ -116,17 +116,6 @@ extern UART_HandleTypeDef      huart1;
 extern UART_HandleTypeDef      huart2;
 #define RS485_UART             (huart2)
 
-// Clock
-extern I2C_HandleTypeDef       hi2c1;
-#define SYSTEM_I2C             (hi2c1)
-#define SYSTEM_CLOCK_I2C       (hi2c1)
-
-// FLASH
-extern SPI_HandleTypeDef       hspi1;
-#define FLASH_SPI              (hspi1)
-
-#define SYSTEM_TIMER           (TIM4)
-
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

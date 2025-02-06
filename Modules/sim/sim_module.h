@@ -1,3 +1,5 @@
+/* Copyright © 2025 Georgy E. All rights reserved. */
+
 #ifndef INC_SIM_MODULE_H_
 #define INC_SIM_MODULE_H_
 
@@ -11,19 +13,15 @@ extern "C" {
 
 
 #ifdef DEBUG
-#   define SIM_MODULE_DEBUG (1)
+#   define SIM_MODULE_DEBUG (0)
 #endif
 
 
-#define RESPONSE_SIZE (800)
+#define RESPONSE_SIZE (500)
 #define END_OF_STRING (0x1a)
 #define SIM_LOG_SIZE  (300)
 
 
-extern char sim_response[RESPONSE_SIZE];
-
-
-void sim_begin();
 void sim_process();
 void sim_proccess_input(const char input_chr);
 void send_sim_http_post(const char* data);

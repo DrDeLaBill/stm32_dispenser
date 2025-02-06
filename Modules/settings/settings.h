@@ -125,6 +125,7 @@ void set_settings_url(const char* url);
 void set_settings_sleep(uint32_t sleep);
 
 void settings_update();
+bool settings_ready();
 
 
 #ifdef __cplusplus

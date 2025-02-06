@@ -4,11 +4,13 @@
 #define _LOG_H_
 
 
-#define LOG_BEDUG (1)
+#define LOG_WORK_BEDUG  (0)
+#define LOG_PARSE_BEDUG (0)
 
 
 void log_init();
 void log_tick();
+extern "C" void log_reset_timers();
 
 
 #endif

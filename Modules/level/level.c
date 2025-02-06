@@ -26,12 +26,9 @@ int32_t  _get_liquid_liters(uint32_t adc);
 uint32_t _get_cur_liquid_adc();
 
 
-const char* LIQUID_TAG = "LQID";
-
-
 bool started = false;
 unsigned counter = 0;
-uint32_t level_adc[100] = {0};
+uint32_t level_adc[10] = {0};
 gtimer_t timer = {0};
 
 
@@ -46,6 +43,16 @@ void level_tick()
 	}
 	gtimer_start(&timer, 100);
 	level_adc[counter++] = _get_cur_liquid_adc();
+
+	// TODO: remove start
+#ifdef DEBUG
+	static gtimer_t tmp_timer = {};
+	if (!gtimer_wait(&tmp_timer)) {
+		gtimer_start(&tmp_timer, 10 * SECOND_MS);
+		printTagLog("TMP", "ADC1: %d, ADC2: %u", get_system_adc(0), get_system_adc(1));
+	}
+#endif
+	// TODO: remove end
 }
 
 int32_t get_level()
@@ -74,7 +81,7 @@ int32_t get_level()
 uint32_t get_level_adc()
 {
 	if (!started) {
-		return (uint16_t)settings.tank_ADC_min;
+		return (uint32_t)settings.tank_ADC_min;
 	}
 	uint32_t sum = 0;
 	for (unsigned i = 0; i < __arr_len(level_adc); i++) {
@@ -105,7 +112,11 @@ int32_t _get_liquid_liters(uint32_t adc)
 
 	if (adc >= STM_ADC_MAX) {
 		if (print_flag) {
-			printTagLog(LIQUID_TAG, "error liquid tank: get liquid ADC value - value more than MAX=%lu (ADC=%lu)", STM_ADC_MAX, adc);
+			printPretty(
+				"- error tank: ADC{%lu} > STM_ADC_MAX{%lu}\n",
+				adc,
+				STM_ADC_MAX
+			);
 		}
 		return LEVEL_ERROR;
 	}
@@ -114,14 +125,23 @@ int32_t _get_liquid_liters(uint32_t adc)
 		adc + LEVEL_LATENCY < settings.tank_ADC_max
 	) {
 		if (print_flag) {
-			printTagLog(LIQUID_TAG, "error liquid tank: settings error - ADC=%lu, ADC_min=%lu, ADC_max=%lu", adc, settings.tank_ADC_min, settings.tank_ADC_max);
+			printPretty(
+				"- error tank: ADC{%lu} not in tange ADC_min{%lu} -> ADC_max{%lu}\n",
+				adc,
+				settings.tank_ADC_min,
+				settings.tank_ADC_max
+			);
 		}
 		return LEVEL_ERROR;
 	}
 
 	if (settings.tank_ADC_min <= settings.tank_ADC_max) {
 		if (print_flag) {
-			printTagLog(LIQUID_TAG, "error liquid tank: settings error - ADC=%lu, ADC_min=%lu, ADC_max=%lu", adc, settings.tank_ADC_min, settings.tank_ADC_max);
+			printPretty(
+				"- error tank: bad range - ADC_min{%lu} less or equal ADC_max{%lu}\n",
+				settings.tank_ADC_min,
+				settings.tank_ADC_max
+			);
 		}
 		return LEVEL_ERROR;
 	}
@@ -130,7 +150,11 @@ int32_t _get_liquid_liters(uint32_t adc)
 	uint32_t ltr_range = __abs_dif(settings.tank_ltr_max, settings.tank_ltr_min);
 	if (adc_range == 0) {
 		if (print_flag) {
-			printTagLog(LIQUID_TAG, "error liquid tank: settings error - liters_range=%lu, ADC_range=%lu", ltr_range, adc_range);
+			printPretty(
+				"- error tank: bad range - liters_range=%lu, ADC_range=%lu\n",
+				ltr_range,
+				adc_range
+			);
 		}
 		return LEVEL_ERROR;
 	}
@@ -144,7 +168,12 @@ int32_t _get_liquid_liters(uint32_t adc)
 	}
 	if (end == 0) {
 		if (print_flag) {
-			printTagLog(LIQUID_TAG, "error liquid tank: settings error - ADC=%lu, tank_ADC_min=%lu, tank_ADC_max=%lu", adc, settings.tank_ADC_min, settings.tank_ADC_max);
+			printPretty(
+				"- error tank: ADC{%lu}, ADC_min{%lu} -> ADC_max{%lu}\n",
+				adc,
+				settings.tank_ADC_min,
+				settings.tank_ADC_max
+			);
 		}
 		return LEVEL_ERROR;
 	}
@@ -157,9 +186,8 @@ int32_t _get_liquid_liters(uint32_t adc)
 	int32_t ltr_res = (int32_t)(settings.tank_ltr_min + ((value * ltr_range) / end));
 	if (ltr_res <= 0) {
 		if (print_flag) {
-			printTagLog(
-				LIQUID_TAG,
-				"error liquid tank: get liquid liters - value less or equal to zero (result=%ld l, value=%ld l, range=%ld l, adc_end=%lu)",
+			printPretty(
+				"- error tank: ZERO value (result=%ld l, value=%ld l, range=%ld l, adc_end=%lu)\n",
 				ltr_res,
 				value,
 				ltr_range,

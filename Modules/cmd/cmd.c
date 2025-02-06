@@ -23,6 +23,8 @@ static void _clear();
 static void _cmd_status();
 static void _cmd_saveadcmin();
 static void _cmd_saveadcmax();
+static void _cmd_reset();
+static void _cmd_reboot();
 
 
 typedef struct _action_t {
@@ -35,6 +37,8 @@ static const action_t actions[] = {
 	{"status",     _cmd_status},
 	{"saveadcmin", _cmd_saveadcmin},
 	{"saveadcmax", _cmd_saveadcmax},
+	{"reset",      _cmd_reset},
+	{"reboot",     _cmd_reboot},
 };
 static const char TAG[] = "CMD";
 static char buffer[2 * STR_CMD_SIZE] = { 0 };
@@ -111,4 +115,23 @@ void _cmd_saveadcmax()
 	settings.tank_ADC_max = get_level_adc();
 	printTagLog(TAG, "New adc min value: %lu", settings.tank_ADC_max);
 	set_status(NEED_SAVE_SETTINGS);
+}
+
+extern void log_reset_timers();
+void _cmd_reset()
+{
+	settings.pump_work_sec     = 0;
+	settings.pump_work_day_sec = 0;
+	settings.pump_downtime_sec = 0;
+	log_reset_timers();
+	printTagLog(TAG, "Reset pump");
+	set_status(NEED_SAVE_SETTINGS);
+}
+
+void _cmd_reboot()
+{
+	printTagLog(TAG, "Rebooting...");
+	gtimer_start(&timer, 2 * SECOND_MS);
+	while (gtimer_wait(&timer)) {}
+	NVIC_SystemReset();
 }

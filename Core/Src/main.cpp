@@ -38,12 +38,13 @@
 #include "glog.h"
 #include "pump.h"
 #include "soul.h"
+#include "tempr.h"
 #include "level.h"
 #include "ds1307.h"
 #include "gutils.h"
+#include "modbus.h"
 #include "gsystem.h"
 #include "w25qxx.h"
-#include "pressure.h"
 #include "settings.h"
 #include "sim_module.h"
 
@@ -71,26 +72,23 @@
 
 /* USER CODE BEGIN PV */
 
-#if defined(_DEBUG) || defined(DEBUG) || defined(GBEDUG_FORCE)
-const char MAIN_TAG[] = "MAIN";
+#if defined(DEBUG)
+static const char MAIN_TAG[] = "MAIN";
 #endif
+
+static char cmd_input_chr = 0;
+static char sim_input_chr = 0;
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
+void init_it();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-char cmd_input_chr = 0;
-char sim_input_chr = 0;
-
-uint16_t rs485_cnt = 0;
-char rs485_input_chr[100] = {0};
-utl::Timer RS485Timer(GENERAL_TIMEOUT_MS);
 
 /* USER CODE END 0 */
 
@@ -102,7 +100,7 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
 
-	system_pre_load();
+	system_init();
 
   /* USER CODE END 1 */
 
@@ -149,31 +147,25 @@ int main(void)
 	MX_SPI1_Init();
 	MX_USART2_UART_Init();
 #endif
-
-	HAL_Delay(100);
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-	HAL_UART_Receive_IT(&SIM_MODULE_UART, (uint8_t*) &sim_input_chr, sizeof(char));
-	HAL_UART_Receive_IT(&CMD_UART, (uint8_t*) &cmd_input_chr, sizeof(char));
-	HAL_UART_Receive_IT(&RS485_UART, (uint8_t*)&rs485_input_chr[rs485_cnt++], 1);
-
     pump_init();
-
-	sim_begin();
 
 	log_init();
 
-	system_registrate(settings_update,  20,  true);
-	system_registrate(pressure_process, 200, true);
-	system_registrate(sim_process,      20,  true);
-	system_registrate(level_tick,       200, true);
-	system_registrate(pump_process,     20,  true);
-	system_registrate(log_tick,         500, true);
-	system_registrate(cmd_process,      20,  true);
-	system_registrate(out_tick,         50,  true);
+	system_register(settings_update,  20,  true);
+	system_register(tempr_tick,       200, true);
+	system_register(sim_process,      20,  true);
+	system_register(level_tick,       200, true);
+	system_register(pump_process,     20,  true);
+	system_register(log_tick,         500, true);
+	system_register(cmd_process,      20,  true);
+//	system_register(modbus_tick,      10,  true);
+	system_register(out_tick,         50,  true);
+
+	init_it();
 
 	set_status((SOUL_STATUS)HAS_NEW_RECORD);
 	set_system_timeout(150 * SECOND_MS);
@@ -240,6 +232,12 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
+void init_it()
+{
+	HAL_UART_Receive_IT(&SIM_MODULE_UART, (uint8_t*) &sim_input_chr, sizeof(char));
+	HAL_UART_Receive_IT(&CMD_UART, (uint8_t*) &cmd_input_chr, sizeof(char));
+}
+
 extern "C" void system_hse_config(void)
 {
 	SystemClock_Config();
@@ -247,24 +245,6 @@ extern "C" void system_hse_config(void)
 
 void system_ready_check(void)
 {
-	// TODO: remove start
-#ifdef DEBUG
-	static gtimer_t tmp_timer = {};
-	if (!gtimer_wait(&tmp_timer)) {
-		gtimer_start(&tmp_timer, 10 * SECOND_MS);
-		printTagLog(MAIN_TAG, "ADC1: %d, ADC2: %u", get_system_adc(0), get_system_adc(1));
-	}
-#endif
-	// TODO: remove end
-
-	if (strlen(rs485_input_chr) && !RS485Timer.wait()) {
-		printTagLog(MAIN_TAG, "RS485: %s", rs485_input_chr);
-		memset(rs485_input_chr, 0, rs485_cnt + 1);
-		rs485_cnt = 0;
-		HAL_UART_AbortReceive_IT(&RS485_UART);
-		HAL_UART_Receive_IT(&RS485_UART, (uint8_t*)&rs485_input_chr[rs485_cnt++], 1);
-	}
-
 #ifndef DEBUG
 	HAL_IWDG_Refresh(&hiwdg);
 #endif
@@ -330,6 +310,7 @@ char* get_custom_status_name(SOUL_STATUS status)
 	switch (status) {
 	CASE_STATUS(HAS_NEW_RECORD)
 	CASE_STATUS(NEW_RECORD_WAS_NOT_SAVED)
+	CASE_STATUS(MODBUS_ERROR)
 	default:
 		snprintf(name, sizeof(name) - 1, "%s", get_custom_status_name(status));
 		break;
@@ -347,12 +328,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 		cmd_input(cmd_input_chr);
 		HAL_UART_Receive_IT(&CMD_UART, (uint8_t*)&cmd_input_chr, 1);
 	} else if (huart->Instance == RS485_UART.Instance) {
-		if (rs485_cnt >= __arr_len(rs485_input_chr) - 1) {
-			memset(rs485_input_chr, 0, sizeof(rs485_input_chr));
-			rs485_cnt = 0;
-		}
-		RS485Timer.start();
-		HAL_UART_Receive_IT(&RS485_UART, (uint8_t*)&rs485_input_chr[rs485_cnt++], 1);
+		modbus_input();
 	} else {
 		Error_Handler();
 	}

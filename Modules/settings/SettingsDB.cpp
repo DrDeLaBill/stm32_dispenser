@@ -26,7 +26,7 @@ SettingsStatus SettingsDB::load()
 	bool needResaveFirst = false, needResaveSecond = false;
     status = storage->find(FIND_MODE_EQUAL, &address1, PREFIX, 1);
     if (status != STORAGE_OK) {
-#if SETTINGS_DB_BEDUG
+#if SETTINGS_BEDUG
         printTagLog(SettingsDB::TAG, "error load settings: try to find duplicate (error=%02X)", status);
 #endif
         needResaveFirst = true;
@@ -34,7 +34,7 @@ SettingsStatus SettingsDB::load()
 
     status = storage->find(FIND_MODE_EQUAL, &address2, PREFIX, 2);
     if (status != STORAGE_OK) {
-#if SETTINGS_DB_BEDUG
+#if SETTINGS_BEDUG
         printTagLog(SettingsDB::TAG, "error load settings: storage find error=%02X", status);
 #endif
         needResaveSecond = true;
@@ -49,7 +49,7 @@ SettingsStatus SettingsDB::load()
     	status = STORAGE_NOT_FOUND;
     }
     if (status != STORAGE_OK) {
-#if SETTINGS_DB_BEDUG
+#if SETTINGS_BEDUG
         printTagLog(SettingsDB::TAG, "error load settings: storage load error=%02X address1=%lu, adderss2=%lu", status, address1, address2);
 #endif
         return SETTINGS_ERROR;
@@ -57,7 +57,7 @@ SettingsStatus SettingsDB::load()
 
     memcpy(this->settings, &tmpSettings, this->size);
 
-#if SETTINGS_DB_BEDUG
+#if SETTINGS_BEDUG
     printTagLog(SettingsDB::TAG, "settings loaded");
 #endif
 
@@ -78,14 +78,14 @@ SettingsStatus SettingsDB::save()
     status = storage->find(FIND_MODE_EQUAL, &address, PREFIX, 1);
 
     if (status != STORAGE_OK) {
-#if SETTINGS_DB_BEDUG
+#if SETTINGS_BEDUG
         printTagLog(SettingsDB::TAG, "error save settings: storage find error, try to find duplicate (error=%02X)", status);
 #endif
     	status = storage->find(FIND_MODE_EQUAL, &address, PREFIX, 2);
     }
 
     if (status == STORAGE_NOT_FOUND) {
-#if SETTINGS_DB_BEDUG
+#if SETTINGS_BEDUG
         printTagLog(SettingsDB::TAG, "error save settings: storage find duplicate error, try to find empty (error=%02X)", status);
 #endif
         status = storage->find(FIND_MODE_EMPTY, &address);
@@ -93,14 +93,14 @@ SettingsStatus SettingsDB::save()
 
     if (status == STORAGE_NOT_FOUND) {
         // Search for any address
-#if SETTINGS_DB_BEDUG
+#if SETTINGS_BEDUG
         printTagLog(SettingsDB::TAG, "error save settings: storage find empty error, try to find any address (error=%02X)", status);
 #endif
     	status = storage->find(FIND_MODE_NEXT, &address, "", 0);
     }
 
     if (status != STORAGE_OK) {
-#if SETTINGS_DB_BEDUG
+#if SETTINGS_BEDUG
         printTagLog(SettingsDB::TAG, "error save settings: storage find error=%02X", status);
 #endif
         return SETTINGS_ERROR;
@@ -109,7 +109,7 @@ SettingsStatus SettingsDB::save()
     // Save original settings
 	status = storage->rewrite(address, PREFIX, 1, this->settings, this->size);
     if (status != STORAGE_OK) {
-#if SETTINGS_DB_BEDUG
+#if SETTINGS_BEDUG
         printTagLog(SettingsDB::TAG, "error save settings: storage save error=%02X address=%lu", status, address);
 #endif
         return SETTINGS_ERROR;
@@ -119,7 +119,7 @@ SettingsStatus SettingsDB::save()
 	status = storage->find(FIND_MODE_EQUAL, &address, PREFIX, 2);
 
     if (status == STORAGE_NOT_FOUND) {
-#if SETTINGS_DB_BEDUG
+#if SETTINGS_BEDUG
         printTagLog(SettingsDB::TAG, "error save settings duplicate: storage find error, try to find empty (error=%02X)", status);
 #endif
         status = storage->find(FIND_MODE_EMPTY, &address);
@@ -127,14 +127,14 @@ SettingsStatus SettingsDB::save()
 
 	status = storage->rewrite(address, PREFIX, 2, this->settings, this->size);
     if (status != STORAGE_OK) {
-#if SETTINGS_DB_BEDUG
+#if SETTINGS_BEDUG
         printTagLog(SettingsDB::TAG, "error save settings duplicate: storage save error=%02X address=%lu", status, address);
 #endif
         return SETTINGS_ERROR;
     }
 
     if (this->load() == SETTINGS_OK) {
-#if SETTINGS_DB_BEDUG
+#if SETTINGS_BEDUG
     	printTagLog(SettingsDB::TAG, "settings saved successfully (address=%lu)", address);
 #endif
 

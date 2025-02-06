@@ -12,15 +12,14 @@
 #include "clock.h"
 #include "level.h"
 #include "gutils.h"
-#include "gsystem.h"
 #include "fsm_gc.h"
+#include "modbus.h"
+#include "gsystem.h"
 #include "settings.h"
-#include "pressure.h"
 
 
-//#define MIN_PUMP_WORK_TIME ((uint32_t)30000)
 #define PUMP_MIN_TIME_MS     ((uint32_t)5000)
-#define PUMP_WORK_PERIOD     (300000) // ((uint32_t)900000)
+#define PUMP_WORK_PERIOD     ((uint32_t)300000) //((uint32_t)900000)
 
 #define PUMP_LED_DISABLE_STATE_OFF_TIME ((uint32_t)6000)
 #define PUMP_LED_DISABLE_STATE_ON_TIME  ((uint32_t)300)
@@ -34,6 +33,7 @@ static void _pump_indicate_work_state();
 static uint32_t _calculate_work_time();
 static uint32_t _get_day_sec_left();
 static void     _pump_check_log_date();
+static bool     _pump_active();
 static bool     _pump_ready();
 
 
@@ -41,29 +41,12 @@ extern settings_t settings;
 
 static const char* TAG = "PUMP";
 
-static bool             settings_updated = false;
-static bool             was_enabled      = false;
-static uint32_t         need_time_ms     = 0;
+static bool     settings_updated = false;
+static bool     was_enabled      = false;
+static uint32_t need_time_ms     = 0;
 static gtimer_t timer            = {0};
 static gtimer_t wait_timer       = {0};
 static gtimer_t indication_timer = {0};
-
-
-static void _init_s(void);
-static void _start_s(void);
-static void _count_work_s(void);
-static void _count_wait_s(void);
-static void _count_down_s(void);
-static void _error_s(void);
-
-static void reset_a(void);
-static void start_a(void);
-static void down_a(void);
-static void wait_a(void);
-static void save_and_down_a(void);
-static void save_and_work_a(void);
-static void save_a(void);
-static void error_a(void);
 
 
 FSM_GC_CREATE(pump_fsm)
@@ -81,31 +64,42 @@ FSM_GC_CREATE_STATE(count_wait_s, _count_wait_s)
 FSM_GC_CREATE_STATE(count_down_s, _count_down_s)
 FSM_GC_CREATE_STATE(error_s,      _error_s)
 
+FSM_GC_CREATE_ACTION(reset_a,         _reset_a)
+FSM_GC_CREATE_ACTION(start_a,         _start_a)
+FSM_GC_CREATE_ACTION(down_a,          _down_a)
+FSM_GC_CREATE_ACTION(wait_a,          _wait_a)
+FSM_GC_CREATE_ACTION(switch_wait_a,   _switch_wait_a)
+FSM_GC_CREATE_ACTION(save_and_down_a, _save_and_down_a)
+FSM_GC_CREATE_ACTION(error_a,         _error_a)
+FSM_GC_CREATE_ACTION(save_and_work_a, _save_and_work_a)
+FSM_GC_CREATE_ACTION(save_a,          _save_a)
+
 FSM_GC_CREATE_TABLE(
 	pump_fsm_table,
-	{&init_s,       &success_e,    &start_s,      reset_a},
+	{&init_s,       &success_e,    &start_s,      &reset_a},
 
-	{&start_s,      &count_work_e, &count_work_s, start_a},
-	{&start_s,      &count_down_e, &count_down_s, down_a},
-	{&start_s,      &count_wait_e, &count_wait_s, wait_a},
+	{&start_s,      &count_work_e, &count_work_s, &start_a},
+	{&start_s,      &count_down_e, &count_down_s, &down_a},
+	{&start_s,      &count_wait_e, &count_wait_s, &wait_a},
 
-	{&count_work_s, &count_wait_e, &count_wait_s, wait_a},
-	{&count_work_s, &count_down_e, &count_down_s, save_and_down_a},
-	{&count_work_s, &error_e,      &error_s,      error_a},
+	{&count_work_s, &count_wait_e, &count_wait_s, &switch_wait_a},
+	{&count_work_s, &count_down_e, &count_down_s, &save_and_down_a},
+	{&count_work_s, &error_e,      &error_s,      &error_a},
 
-	{&count_down_s, &count_wait_e, &count_wait_s, wait_a},
-	{&count_down_s, &count_work_e, &count_work_s, save_and_work_a},
-	{&count_down_s, &error_e,      &error_s,      error_a},
+	{&count_down_s, &count_wait_e, &count_wait_s, &switch_wait_a},
+	{&count_down_s, &count_work_e, &count_work_s, &save_and_work_a},
+	{&count_down_s, &error_e,      &error_s,      &error_a},
 
-	{&count_wait_s, &success_e,    &start_s,      save_a},
-	{&count_wait_s, &error_e,      &error_s,      error_a},
+	{&count_wait_s, &success_e,    &start_s,      &save_a},
+	{&count_wait_s, &error_e,      &error_s,      &error_a},
 
-	{&error_s,      &success_e,    &init_s,       reset_a},
+	{&error_s,      &success_e,    &init_s,       &reset_a},
 )
 
 
 void pump_init()
 {
+	gtimer_start(&timer, 5 * SECOND_MS);
 	fsm_gc_init(&pump_fsm, pump_fsm_table, __arr_len(pump_fsm_table));
 }
 
@@ -117,68 +111,54 @@ void pump_process()
 
 void pump_show_status()
 {
-    gprint("################################################\n");
+    printTagLog(TAG, "PUMP INFO:");
 
 	int32_t  liquid_val      = get_level();
 	uint32_t liquid_adc      = get_level_adc();
 	uint16_t pressure_1      = get_press();
-    uint32_t used_day_liquid = settings.pump_work_day_sec * settings.pump_speed / SECOND_MS;
 #if PUMP_BEDUG
+    uint32_t used_day_liquid = settings.pump_work_day_sec * settings.pump_speed / SECOND_MS;
     if (settings.pump_target_ml == 0) {
-		printTagLog(TAG, "Unable to calculate work time - no setting day liquid target");
-	} else if (settings.pump_speed == 0) {
-		printTagLog(TAG, "Unable to calculate work time - no setting pump speed");
-	} else if (is_tank_empty()) {
-		printTagLog(TAG, "Unable to calculate work time - liquid tank empty");
-	} else if (need_time_ms < PUMP_MIN_TIME_MS) {
-    	printTagLog(TAG, "Unable to calculate work time - needed work time less than %lu sec; set work time 0 sec", PUMP_MIN_TIME_MS / 1000);
-	} else if (settings.pump_target_ml <= used_day_liquid) {
-		printTagLog(TAG, "Unable to calculate work time - target liquid amount per day already used");
+		printPretty("- no pump_target_ml\n");
 	}
-#else
-    if (settings.pump_target_ml == 0 ||
-		settings.pump_speed == 0 ||
-		is_tank_empty() ||
-		pump_state.needed_work_time < MIN_PUMP_WORK_TIME ||
-		settings.pump_target_ml <= used_day_liquid
-	) {
-		printTagLog(TAG, "Unable to calculate work time - please check settings");
+    if (settings.pump_speed == 0) {
+    	printPretty("- no pump_speed\n");
+	}
+    if (is_tank_empty()) {
+    	printPretty("- tank is empty");
+	}
+    if (need_time_ms < PUMP_MIN_TIME_MS) {
+    	printPretty("- bad work time (%lu ms)\n", need_time_ms);
+	}
+    if (settings.pump_target_ml <= used_day_liquid) {
+    	printPretty("- pump_target_ml overflow\n");
 	}
 #endif
-
     uint32_t time_period = 0;
-    if (!settings.pump_speed || !settings.pump_target_ml || get_level() == LEVEL_ERROR) {
-		printTagLog(TAG, "Pump will not start - unexceptable settings or sesnors values");
-		printTagLog(TAG, "Please check settings: target liters per day, tank ADC values, tank liters values or enable state");
-	} else if (fsm_gc_is_state(&pump_fsm, &count_work_s)) {
+    if (fsm_gc_is_state(&pump_fsm, &count_work_s)) {
         time_period = timer.start + timer.delay > getMillis() ?
 			timer.start + timer.delay - getMillis() : 0;
-        printTagLog(TAG, "Pump work from %lu ms to %lu ms (internal)", timer.start, timer.start + timer.delay);
-    } else if (fsm_gc_is_state(&pump_fsm, &count_wait_s)) {
+        printPretty("- work [%010lu] => [%010lu] (ms)\n", timer.start, timer.start + timer.delay);
+    }
+    if (fsm_gc_is_state(&pump_fsm, &count_wait_s)) {
     	time_period = wait_timer.start + wait_timer.delay > getMillis() ?
 			wait_timer.start + wait_timer.delay - getMillis() : 0;
-        printTagLog(TAG, "Pump will start at %lu ms (internal)", wait_timer.start + wait_timer.delay);
-    } else if (fsm_gc_is_state(&pump_fsm, &count_down_s)) {
-    	printTagLog(TAG, "Counting pump downtime period");
+        printPretty("- wait [%010lu] => [%010lu] (ms)\n", wait_timer.start, wait_timer.start + wait_timer.delay);
+    }
+    if (fsm_gc_is_state(&pump_fsm, &count_down_s)) {
         time_period = timer.start + timer.delay - getMillis();
-        printTagLog(TAG, "Pump count from %lu ms to %lu ms (internal)", timer.start, timer.start + timer.delay);
-    } else {
-    	printTagLog(TAG, "Pump current day work time: %lu", settings.pump_work_day_sec);
-	}
-
+        printPretty("- downtime [%010lu] => [%010lu] (ms)\n", timer.start, timer.start + timer.delay);
+    }
     if (time_period) {
-    	printTagLog(TAG, "Wait %lu min %lu sec", time_period / SECONDS_PER_MINUTE / SECOND_MS, (time_period / SECOND_MS) % SECONDS_PER_MINUTE);
+    	printPretty("- period: %lu min %lu sec\n", time_period / SECONDS_PER_MINUTE / SECOND_MS, (time_period / SECOND_MS) % SECONDS_PER_MINUTE);
     }
+    printPretty("- pressure: %u.%02u MPa\n", pressure_1 / 100, pressure_1 % 100);
 
-    printTagLog(TAG, "Internal clock: %lu ms", getMillis());
-    printTagLog(TAG, "Liquid pressure: %u.%02u MPa", pressure_1 / 100, pressure_1 % 100);
-
-    if (liquid_val < 0) {
-    	printTagLog(TAG, "Tank liquid value ERR (ADC=%lu)", liquid_adc);
-    } else {
-    	printTagLog(TAG, "Tank liquid value: %ld l (ADC=%lu)", liquid_val, liquid_adc);
+    if (get_level() == LEVEL_ERROR) {
+    	printPretty("- bad liquid level (ADC=%lu)\n", liquid_adc);
+	} else {
+		printPretty("- liquid: %ld l (ADC=%lu)\n", liquid_val, liquid_adc);
     }
-    gprint("################################################\n");
 }
 
 void pump_update_speed(uint32_t speed)
@@ -239,7 +219,7 @@ uint32_t _calculate_work_time()
 
     uint32_t time_left = _get_day_sec_left();
     uint32_t needed_ml = settings.pump_target_ml - used_day_liquid;
-    uint32_t max_pump_ml_to_end_of_day = (settings.pump_speed * time_left) / (MINUTES_PER_HOUR * SECONDS_PER_MINUTE);
+    uint32_t max_pump_ml_to_end_of_day = (time_left * settings.pump_speed) / (MINUTES_PER_HOUR * SECONDS_PER_MINUTE);
     if (needed_ml > max_pump_ml_to_end_of_day) {
     	work_time_sec = PUMP_WORK_PERIOD;
         return work_time_sec;
@@ -280,7 +260,7 @@ void _pump_check_log_date()
 	}
 }
 
-bool _pump_ready()
+bool _pump_active()
 {
     if (settings.pump_target_ml == 0) {
     	return false;
@@ -297,9 +277,14 @@ bool _pump_ready()
     return true;
 }
 
+bool _pump_ready()
+{
+	return _pump_active() && settings.pump_enabled && !has_errors();
+}
+
 void _init_s(void)
 {
-	if (is_system_ready()) {
+	if (is_system_ready() && !gtimer_wait(&timer)) {
 		fsm_gc_push_event(&pump_fsm, &success_e);
 #if PUMP_BEDUG
 		if (settings.pump_target_ml == 0) {
@@ -322,7 +307,7 @@ void _start_s(void)
 	if (need_time_ms < PUMP_MIN_TIME_MS) {
 		need_time_ms = 0;
 		fsm_gc_push_event(&pump_fsm, &count_wait_e);
-	} else if (settings.pump_enabled && _pump_ready() && !has_errors()) {
+	} else if (_pump_ready()) {
 		fsm_gc_push_event(&pump_fsm, &count_work_e);
 	} else {
 		fsm_gc_push_event(&pump_fsm, &count_down_e);
@@ -362,7 +347,7 @@ void _count_work_s(void)
 
 void _count_down_s(void)
 {
-	if (settings.pump_enabled && _pump_ready() && !has_errors()) {
+	if (_pump_ready()) {
 		fsm_gc_push_event(&pump_fsm, &count_work_e);
 	}
 
@@ -402,87 +387,103 @@ void _count_wait_s(void)
 
 void _error_s(void)
 {
-	if (_pump_ready() && is_system_ready()) {
+	if (_pump_active() && is_system_ready()) {
 		fsm_gc_push_event(&pump_fsm, &success_e);
 	}
 }
 
-void reset_a(void)
+void _reset_a(void)
 {
 	fsm_gc_clear(&pump_fsm);
 	need_time_ms = 0;
 }
 
-void start_a(void)
+void _start_a(void)
 {
 	was_enabled = settings.pump_enabled;
 
 	gtimer_start(&timer, need_time_ms);
+	gtimer_start(&wait_timer, PUMP_WORK_PERIOD);
 
 	HAL_GPIO_WritePin(MOT_FET_GPIO_Port, MOT_FET_Pin, GPIO_PIN_SET);
 
-	printTagLog(TAG, "PUMP ON (will work %lu ms)", timer.delay);
+	printTagLog(TAG, "set %lu ms work", timer.delay);
 
 	pump_show_status();
 }
 
-void down_a(void)
+void _down_a(void)
 {
 	was_enabled = settings.pump_enabled;
 
 	gtimer_start(&timer, need_time_ms);
+	gtimer_start(&wait_timer, PUMP_WORK_PERIOD);
 
 	HAL_GPIO_WritePin(MOT_FET_GPIO_Port, MOT_FET_Pin, GPIO_PIN_RESET);
 
-	printTagLog(TAG, "PUMP DOWNTIME (%lu ms)", timer.delay);
+	printTagLog(TAG, "set %lu ms wait", timer.delay);
 
 	pump_show_status();
 }
 
-void wait_a(void)
+void _wait_a(void)
 {
 	was_enabled = settings.pump_enabled;
 
+	gtimer_reset(&timer);
+	gtimer_start(&wait_timer, PUMP_WORK_PERIOD);
+
+	uint32_t wait_ms = wait_timer.start + wait_timer.delay;
+	uint32_t wait_time_ms =  wait_ms - getMillis();
+	HAL_GPIO_WritePin(MOT_FET_GPIO_Port, MOT_FET_Pin, GPIO_PIN_RESET);
+
+	printTagLog(TAG, "PUMP OFF - WAIT (%lu ms)", wait_time_ms);
+	pump_show_status();
+}
+
+void _switch_wait_a(void)
+{
+	was_enabled = settings.pump_enabled;
+
+	uint32_t wait_ms = wait_timer.start + wait_timer.delay;
 	uint32_t wait_time_ms = 0;
-	if (need_time_ms <= PUMP_WORK_PERIOD) {
-		wait_time_ms = PUMP_WORK_PERIOD - need_time_ms;
+	if (getMillis() < wait_ms) {
+		wait_time_ms = wait_ms - getMillis();
 	}
-
-	gtimer_start(&wait_timer, wait_time_ms);
-
 	if (wait_time_ms > PUMP_MIN_TIME_MS) {
 		HAL_GPIO_WritePin(MOT_FET_GPIO_Port, MOT_FET_Pin, GPIO_PIN_RESET);
 
-		printTagLog(TAG, "PUMP OFF - WAIT (%lu ms)", wait_timer.delay);
+		printTagLog(TAG, "PUMP OFF - SWITCH WAIT (%lu ms)", wait_time_ms);
 
 		pump_show_status();
 	}
 }
 
-void save_and_down_a(void)
+void _save_and_down_a(void)
 {
 	settings_updated = false;
 	was_enabled = settings.pump_enabled;
 
 	_pump_check_log_date();
 
-	if (getMillis() < timer.start) {
-		return;
-	}
-
-	uint32_t res_time_ms = getMillis() - timer.start;
+	uint32_t res_time_ms = timer.delay;
 	uint32_t time_sec    = res_time_ms / SECOND_MS;
 
 	settings.pump_work_day_sec += time_sec;
 	settings.pump_work_sec     += time_sec;
 
 #if PUMP_BEDUG
-	printTagLog(TAG, "update work log: time added (%lu s)", time_sec);
+	printTagLog(TAG, "work added (%lu s)", time_sec);
 #endif
 
 	set_status(NEED_SAVE_SETTINGS);
 
-	gtimer_start(&timer, need_time_ms - res_time_ms);
+	if (need_time_ms > res_time_ms) {
+		need_time_ms -= res_time_ms;
+	} else {
+		need_time_ms = 0;
+	}
+	gtimer_start(&timer, need_time_ms);
 
 	HAL_GPIO_WritePin(MOT_FET_GPIO_Port, MOT_FET_Pin, GPIO_PIN_RESET);
 
@@ -491,29 +492,30 @@ void save_and_down_a(void)
 	pump_show_status();
 }
 
-void save_and_work_a(void)
+void _save_and_work_a(void)
 {
 	settings_updated = false;
 	was_enabled = settings.pump_enabled;
 
 	_pump_check_log_date();
 
-	if (getMillis() < timer.start) {
-		return;
-	}
-
-	uint32_t res_time_ms = getMillis() - timer.start;
+	uint32_t res_time_ms = timer.delay;
 	uint32_t time_sec    = res_time_ms / SECOND_MS;
 
     settings.pump_downtime_sec += time_sec;
 
 #if PUMP_BEDUG
-    printTagLog(TAG, "update downtime log: time added (%lu s)", time_sec);
+    printTagLog(TAG, "downtime added (%lu s)", time_sec);
 #endif
 
 	set_status(NEED_SAVE_SETTINGS);
 
-	gtimer_start(&timer, need_time_ms - res_time_ms);
+	if (need_time_ms > res_time_ms) {
+		need_time_ms -= res_time_ms;
+	} else {
+		need_time_ms = 0;
+	}
+	gtimer_start(&timer, need_time_ms);
 
 	HAL_GPIO_WritePin(MOT_FET_GPIO_Port, MOT_FET_Pin, GPIO_PIN_SET);
 
@@ -522,51 +524,49 @@ void save_and_work_a(void)
 	pump_show_status();
 }
 
-void save_a(void)
+void _save_a(void)
 {
 	settings_updated = false;
 	_pump_check_log_date();
 
-	if (getMillis() < timer.start) {
+	uint32_t res_time_ms = timer.delay;
+	uint32_t time_sec    = res_time_ms / SECOND_MS;
+
+	if (!time_sec) {
 		return;
 	}
-
-	uint32_t res_time_ms = getMillis() - timer.start;
-	uint32_t time_sec    = res_time_ms / SECOND_MS;
 
 	if (was_enabled) {
 		settings.pump_work_day_sec += time_sec;
 		settings.pump_work_sec     += time_sec;
 #if PUMP_BEDUG
-		printTagLog(TAG, "update work log: time added (%lu s)", time_sec);
+		printTagLog(TAG, "work added (%lu s)", time_sec);
 #endif
 	} else {
 		settings.pump_downtime_sec += time_sec;
 #if PUMP_BEDUG
-		printTagLog(TAG, "update downtime log: time added (%lu s)", time_sec);
+		printTagLog(TAG, "downtime added (%lu s)", time_sec);
 #endif
 	}
 
 	set_status(NEED_SAVE_SETTINGS);
 }
 
-void error_a(void)
+void _error_a(void)
 {
-	save_a();
+	_save_a();
 
 	HAL_GPIO_WritePin(MOT_FET_GPIO_Port, MOT_FET_Pin, GPIO_PIN_RESET);
 
-	printTagLog(TAG, "PUMP OFF - error");
-#if PUMP_BEDUG
+	printTagLog(TAG, "PUMP OFF");
 	if (has_errors()) {
 		printTagLog(TAG, "System is not ready");
 		show_statuses();
 		show_errors();
 	}
-	if (!_pump_ready()) {
-		printTagLog(TAG, "Pump is not ready");
+	if (!_pump_active()) {
+		printTagLog(TAG, "Pump is not active");
 	}
-#endif
 
 	pump_show_status();
 }
